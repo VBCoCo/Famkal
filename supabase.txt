@@ -1,0 +1,190 @@
+-- Leonhards Familienkalender: einmalig vom Eigentümer im Supabase SQL Editor ausführen.
+create extension if not exists pgcrypto;
+
+create table public.families(
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+create table public.family_members(
+  family_id uuid not null references public.families on delete cascade,
+  user_id uuid not null references auth.users on delete cascade,
+  display_name text not null,
+  color text not null default '#888888',
+  role text not null default 'member' check(role in('owner','admin','member')),
+  default_reminder_minutes int not null default 15 check(default_reminder_minutes between 0 and 10080),
+  notify_assignments boolean not null default true,
+  notify_changes boolean not null default true,
+  created_at timestamptz not null default now(),
+  primary key(family_id,user_id),
+  unique(user_id)
+);
+create table public.family_invitations(
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families on delete cascade,
+  email text not null,
+  code text not null unique default upper(substr(encode(gen_random_bytes(8),'hex'),1,10)),
+  created_by uuid not null references auth.users,
+  expires_at timestamptz not null default now()+interval '7 days',
+  used_at timestamptz,
+  used_by uuid references auth.users,
+  created_at timestamptz not null default now()
+);
+create table public.event_series(
+  id uuid primary key default gen_random_uuid(), family_id uuid not null references public.families on delete cascade,
+  recurrence text not null check(recurrence in('daily','weekdays','weekly','biweekly')),
+  starts_on date not null, ends_on date, created_by uuid not null references auth.users, created_at timestamptz not null default now()
+);
+create table public.events(
+  id uuid primary key default gen_random_uuid(), family_id uuid not null references public.families on delete cascade,
+  series_id uuid references public.event_series on delete cascade, event_type text not null default 'appointment', title text not null,
+  event_date date not null, start_time time, end_time time, all_day boolean not null default false, location text, notes text,
+  assignee_id uuid references auth.users, transport_to_id uuid references auth.users, transport_from_id uuid references auth.users,
+  reminders int[] not null default '{15}', is_exception boolean not null default false, is_cancelled boolean not null default false,
+  created_by uuid not null references auth.users, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table public.push_subscriptions(
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users on delete cascade,
+  endpoint text unique not null, subscription jsonb not null, user_agent text, created_at timestamptz not null default now()
+);
+create table public.sent_notifications(
+  event_id uuid not null references public.events on delete cascade, user_id uuid not null references auth.users on delete cascade,
+  reminder_minutes int not null, sent_at timestamptz not null default now(), primary key(event_id,user_id,reminder_minutes)
+);
+
+create or replace function public.my_family_id() returns uuid language sql stable security definer set search_path=public as
+$$ select family_id from public.family_members where user_id=auth.uid() limit 1 $$;
+create or replace function public.my_role() returns text language sql stable security definer set search_path=public as
+$$ select role from public.family_members where user_id=auth.uid() limit 1 $$;
+create or replace function public.is_admin() returns boolean language sql stable security definer set search_path=public as
+$$ select coalesce(public.my_role() in ('owner','admin'),false) $$;
+
+alter table public.families enable row level security;
+alter table public.family_members enable row level security;
+alter table public.family_invitations enable row level security;
+alter table public.event_series enable row level security;
+alter table public.events enable row level security;
+alter table public.push_subscriptions enable row level security;
+alter table public.sent_notifications enable row level security;
+
+create policy family_read on public.families for select to authenticated using(id=public.my_family_id());
+create policy members_read on public.family_members for select to authenticated using(family_id=public.my_family_id());
+create policy own_profile_update on public.family_members for update to authenticated
+  using(user_id=auth.uid())
+  with check(user_id=auth.uid() and family_id=public.my_family_id());
+create policy invitations_read_admin on public.family_invitations for select to authenticated using(family_id=public.my_family_id() and public.is_admin());
+create policy series_read on public.event_series for select to authenticated using(family_id=public.my_family_id());
+create policy events_read on public.events for select to authenticated using(family_id=public.my_family_id());
+create policy events_insert on public.events for insert to authenticated with check(family_id=public.my_family_id() and created_by=auth.uid());
+create policy events_update on public.events for update to authenticated
+  using(family_id=public.my_family_id() and (public.is_admin() or created_by=auth.uid() or assignee_id=auth.uid() or transport_to_id=auth.uid() or transport_from_id=auth.uid()))
+  with check(family_id=public.my_family_id());
+create policy events_delete on public.events for delete to authenticated using(family_id=public.my_family_id() and (public.is_admin() or created_by=auth.uid()));
+create policy push_own on public.push_subscriptions for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
+create policy sent_own on public.sent_notifications for select to authenticated using(user_id=auth.uid());
+
+-- Verhindert, dass ein Mitglied durch ein normales Profil-Update seine Rolle oder Familie verändert.
+create or replace function public.protect_member_security_fields() returns trigger language plpgsql as $$
+begin
+  if auth.uid()=old.user_id and not public.is_admin() then
+    new.role:=old.role; new.family_id:=old.family_id; new.user_id:=old.user_id;
+  end if;
+  return new;
+end $$;
+create trigger protect_member_fields before update on public.family_members for each row execute function public.protect_member_security_fields();
+
+-- Wird nur durch den ersten Einrichter über die Oberfläche aufgerufen.
+create or replace function public.create_family(p_name text) returns uuid language plpgsql security definer set search_path=public as $$
+declare f uuid; n text;
+begin
+  if auth.uid() is null then raise exception 'Nicht angemeldet'; end if;
+  if exists(select 1 from public.family_members where user_id=auth.uid()) then raise exception 'Du gehörst bereits zu einer Familie'; end if;
+  n:=coalesce(nullif(trim(p_name),''),'Familienkalender');
+  insert into public.families(name) values(n) returning id into f;
+  insert into public.family_members(family_id,user_id,display_name,color,role)
+  values(f,auth.uid(),coalesce(nullif((select raw_user_meta_data->>'display_name' from auth.users where id=auth.uid()),''),split_part((select email from auth.users where id=auth.uid()),'@',1)),'#355c50','owner');
+  return f;
+end $$;
+
+create or replace function public.create_family_invitation(p_email text) returns text language plpgsql security definer set search_path=public as $$
+declare c text; mail text:=lower(trim(p_email));
+begin
+  if not public.is_admin() then raise exception 'Keine Administratorrechte'; end if;
+  if mail='' or position('@' in mail)=0 then raise exception 'Bitte eine gültige E-Mail-Adresse eingeben'; end if;
+  delete from public.family_invitations where family_id=public.my_family_id() and email=mail and used_at is null;
+  insert into public.family_invitations(family_id,email,created_by) values(public.my_family_id(),mail,auth.uid()) returning code into c;
+  return c;
+end $$;
+
+-- Die eingeladene Person ruft diese Funktion direkt über das Eingabefeld der App auf.
+create or replace function public.join_family(p_code text) returns void language plpgsql security definer set search_path=public as $$
+declare i public.family_invitations%rowtype; account_email text; account_name text;
+begin
+  if auth.uid() is null then raise exception 'Nicht angemeldet'; end if;
+  if exists(select 1 from public.family_members where user_id=auth.uid()) then raise exception 'Du gehörst bereits zu einer Familie'; end if;
+  select lower(email),coalesce(nullif(raw_user_meta_data->>'display_name',''),split_part(email,'@',1)) into account_email,account_name from auth.users where id=auth.uid();
+  select * into i from public.family_invitations where code=upper(trim(p_code)) and used_at is null and expires_at>now() for update;
+  if not found then raise exception 'Ungültiger oder abgelaufener Einladungscode'; end if;
+  if lower(i.email)<>account_email then raise exception 'Der Code wurde für eine andere E-Mail-Adresse erstellt'; end if;
+  insert into public.family_members(family_id,user_id,display_name,color,role) values(i.family_id,auth.uid(),account_name,'#f39a3f','member');
+  update public.family_invitations set used_at=now(),used_by=auth.uid() where id=i.id;
+end $$;
+
+create or replace function public.admin_update_member(p_user_id uuid,p_role text,p_color text,p_display_name text) returns void language plpgsql security definer set search_path=public as $$
+declare target_role text; owners int;
+begin
+  if not public.is_admin() then raise exception 'Keine Administratorrechte'; end if;
+  if p_role not in('owner','admin','member') then raise exception 'Ungültige Rolle'; end if;
+  select role into target_role from public.family_members where family_id=public.my_family_id() and user_id=p_user_id;
+  if target_role is null then raise exception 'Mitglied nicht gefunden'; end if;
+  if (target_role='owner' or p_role='owner') and public.my_role()<>'owner' then raise exception 'Nur der Eigentümer darf Eigentümerrollen ändern'; end if;
+  select count(*) into owners from public.family_members where family_id=public.my_family_id() and role='owner';
+  if target_role='owner' and p_role<>'owner' and owners=1 then raise exception 'Der letzte Eigentümer kann nicht herabgestuft werden'; end if;
+  update public.family_members set role=p_role,color=p_color,display_name=coalesce(nullif(trim(p_display_name),''),display_name)
+  where family_id=public.my_family_id() and user_id=p_user_id;
+end $$;
+
+create or replace function public.create_event_series(p_event jsonb,p_recurrence text,p_until date) returns uuid language plpgsql security definer set search_path=public as $$
+declare s uuid; d date; stop date; first_day date;
+begin
+  if (p_event->>'family_id')::uuid<>public.my_family_id() then raise exception 'Falsche Familie'; end if;
+  first_day:=(p_event->>'event_date')::date; stop:=coalesce(p_until,first_day+365);
+  if stop<first_day or stop>first_day+730 then raise exception 'Ungültiges Serienende'; end if;
+  insert into public.event_series(family_id,recurrence,starts_on,ends_on,created_by) values(public.my_family_id(),p_recurrence,first_day,stop,auth.uid()) returning id into s;
+  d:=first_day;
+  while d<=stop loop
+    if p_recurrence='daily' or (p_recurrence='weekdays' and extract(isodow from d)<6) or (p_recurrence='weekly' and extract(isodow from d)=extract(isodow from first_day)) or (p_recurrence='biweekly' and mod(d-first_day,14)=0) then
+      insert into public.events(family_id,series_id,event_type,title,event_date,start_time,end_time,all_day,location,notes,assignee_id,transport_to_id,transport_from_id,reminders,created_by)
+      values(public.my_family_id(),s,p_event->>'event_type',p_event->>'title',d,nullif(p_event->>'start_time','')::time,nullif(p_event->>'end_time','')::time,coalesce((p_event->>'all_day')::boolean,false),nullif(p_event->>'location',''),nullif(p_event->>'notes',''),nullif(p_event->>'assignee_id','')::uuid,nullif(p_event->>'transport_to_id','')::uuid,nullif(p_event->>'transport_from_id','')::uuid,array(select jsonb_array_elements_text(p_event->'reminders')::int),auth.uid());
+    end if; d:=d+1;
+  end loop; return s;
+end $$;
+
+create or replace function public.update_series_scope(p_occurrence_id uuid,p_scope text,p_patch jsonb) returns void language plpgsql security definer set search_path=public as $$
+declare e public.events%rowtype;
+begin
+  select * into e from public.events where id=p_occurrence_id and family_id=public.my_family_id(); if not found then raise exception 'Termin nicht gefunden'; end if;
+  if not(public.is_admin() or e.created_by=auth.uid() or e.assignee_id=auth.uid() or e.transport_to_id=auth.uid() or e.transport_from_id=auth.uid()) then raise exception 'Keine Berechtigung'; end if;
+  if p_scope='series' and not public.is_admin() then raise exception 'Nur Administratoren dürfen die gesamte Serie ändern'; end if;
+  update public.events set title=p_patch->>'title',event_type=p_patch->>'event_type',start_time=nullif(p_patch->>'start_time','')::time,end_time=nullif(p_patch->>'end_time','')::time,location=nullif(p_patch->>'location',''),notes=nullif(p_patch->>'notes',''),assignee_id=nullif(p_patch->>'assignee_id','')::uuid,transport_to_id=nullif(p_patch->>'transport_to_id','')::uuid,transport_from_id=nullif(p_patch->>'transport_from_id','')::uuid,reminders=array(select jsonb_array_elements_text(p_patch->'reminders')::int),is_exception=(p_scope='single'),updated_at=now()
+  where (p_scope='single' and id=e.id) or (p_scope='following' and series_id=e.series_id and event_date>=e.event_date) or (p_scope='series' and series_id=e.series_id);
+end $$;
+
+create or replace function public.delete_series_scope(p_occurrence_id uuid,p_scope text) returns void language plpgsql security definer set search_path=public as $$
+declare e public.events%rowtype;
+begin
+  select * into e from public.events where id=p_occurrence_id and family_id=public.my_family_id(); if not found then raise exception 'Termin nicht gefunden'; end if;
+  if not(public.is_admin() or e.created_by=auth.uid()) then raise exception 'Keine Berechtigung'; end if;
+  if p_scope='single' then update public.events set is_cancelled=true,is_exception=true where id=e.id;
+  elsif p_scope='following' then delete from public.events where series_id=e.series_id and event_date>=e.event_date;
+  elsif p_scope='series' then if not public.is_admin() then raise exception 'Nur Administratoren dürfen die gesamte Serie löschen'; end if; delete from public.event_series where id=e.series_id;
+  else raise exception 'Ungültiger Umfang'; end if;
+end $$;
+
+grant execute on function public.create_family(text) to authenticated;
+grant execute on function public.create_family_invitation(text) to authenticated;
+grant execute on function public.join_family(text) to authenticated;
+grant execute on function public.admin_update_member(uuid,text,text,text) to authenticated;
+grant execute on function public.create_event_series(jsonb,text,date) to authenticated;
+grant execute on function public.update_series_scope(uuid,text,jsonb) to authenticated;
+grant execute on function public.delete_series_scope(uuid,text) to authenticated;
