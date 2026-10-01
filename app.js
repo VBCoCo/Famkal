@@ -1,41 +1,371 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-const cfg=window.APP_CONFIG||{};
-const sb=createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
-const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-let signup=false,user=null,member=null,members=[],events=[],weekOffset=0,taskFilter='mine',pendingScope=null;
-const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
-const iso=d=>d.toISOString().slice(0,10), esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-function show(id){['auth','onboarding','app'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id))}
-async function bootstrap(){const {data:{session}}=await sb.auth.getSession(); if(!session){show('auth');return} user=session.user; await loadMembership();}
-async function loadMembership(){const {data,error}=await sb.from('family_members').select('*').eq('user_id',user.id).maybeSingle(); if(error) return toast(error.message); if(!data){show('onboarding');return} member=data; show('app'); $('#avatar').textContent=(member.display_name||'?')[0].toUpperCase(); $('#adminNav').classList.toggle('hidden',!['owner','admin'].includes(member.role)); await refreshAll();}
-async function refreshAll(){const a=await sb.from('family_members').select('*').eq('family_id',member.family_id).order('display_name'); if(a.error)return toast(a.error.message);members=a.data; const d=new Date();d.setDate(d.getDate()+weekOffset*7);const start=new Date(d);start.setDate(d.getDate()-((d.getDay()+6)%7));const end=new Date(start);end.setDate(start.getDate()+6);const q=await sb.from('events').select('*').eq('family_id',member.family_id).gte('event_date',iso(new Date(Date.now()-86400000))).lte('event_date',iso(new Date(Date.now()+120*86400000))).eq('is_cancelled',false).order('event_date').order('start_time');if(q.error)return toast(q.error.message);events=q.data;renderToday();renderWeek();renderTasks();if(['owner','admin'].includes(member.role))renderAdmin();fillPeople();}
-function person(id){return members.find(m=>m.user_id===id)}
-const typeIcon=t=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️'}[t]||'📅');
-function card(e){const p=person(e.assignee_id)||person(e.transport_from_id)||person(e.transport_to_id);const chips=[];if(e.transport_to_id)chips.push(`Bringt: ${esc(person(e.transport_to_id)?.display_name)}`);if(e.transport_from_id)chips.push(`Holt: ${esc(person(e.transport_from_id)?.display_name)}`);if(e.assignee_id)chips.push(`Zuständig: ${esc(person(e.assignee_id)?.display_name)}`);return `<article class="event-card" data-id="${e.id}" style="--person:${p?.color||'#999'}"><small>${typeIcon(e.event_type)} ${e.start_time?.slice(0,5)||'Ganztägig'}</small><h3>${esc(e.title)}</h3>${e.location?`<div>${esc(e.location)}</div>`:''}<div class="chips">${chips.map(x=>`<span class="chip">${x}</span>`).join('')}${(e.reminders||[]).map(x=>`<span class="chip">🔔 ${x} Min.</span>`).join('')}</div></article>`}
-function renderToday(){const today=iso(new Date()),list=events.filter(e=>e.event_date===today);$('#todayList').innerHTML=list.length?list.map(card).join(''):'<div class="empty">Heute ist nichts eingetragen.</div>';const next=list.find(e=>!e.start_time||new Date(`${e.event_date}T${e.start_time}`)>new Date())||list[0];$('#nextTask').innerHTML=next?`<small>NÄCHSTER TERMIN</small><h2>${esc(next.title)}</h2><div>${next.start_time?.slice(0,5)||'Ganztägig'} · ${esc(person(next.assignee_id)?.display_name||'noch ungeklärt')}</div>`:'<small>HEUTE</small><h2>Keine weiteren Termine</h2>';bindCards();}
-function weekBounds(){const d=new Date();d.setDate(d.getDate()+weekOffset*7);const s=new Date(d);s.setDate(d.getDate()-((d.getDay()+6)%7));const e=new Date(s);e.setDate(s.getDate()+6);return[s,e]}
-function renderWeek(){const[s,e]=weekBounds();$('#weekRange').textContent=`${s.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})}–${e.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'})}`;let html='';for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){const day=events.filter(x=>x.event_date===iso(d));html+=`<h3>${d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})}</h3>${day.length?day.map(card).join(''):'<div class="empty">Keine Termine</div>'}`}$('#weekList').innerHTML=html;bindCards();}
-function renderTasks(){let list=events.filter(e=>['transport','care','bedtime'].includes(e.event_type));if(taskFilter==='mine')list=list.filter(e=>[e.assignee_id,e.transport_to_id,e.transport_from_id].includes(user.id));if(taskFilter==='open')list=list.filter(e=>!e.assignee_id&&!e.transport_to_id&&!e.transport_from_id);$('#tasksList').innerHTML=list.length?list.slice(0,50).map(e=>`<h4>${new Date(e.event_date+'T12:00').toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'})}</h4>${card(e)}`).join(''):'<div class="empty">Keine passenden Aufgaben.</div>';bindCards();}
-function bindCards(){$$('.event-card').forEach(x=>x.onclick=()=>openEvent(events.find(e=>e.id===x.dataset.id)))}
-function fillPeople(){const opts='<option value="">— ungeklärt —</option>'+members.map(m=>`<option value="${m.user_id}">${esc(m.display_name)}</option>`).join('');['assignee','transportTo','transportFrom'].forEach(id=>$('#'+id).innerHTML=opts)}
-function addReminder(v=15){const n=$('#reminderTpl').content.cloneNode(true);n.querySelector('input').value=v;n.querySelector('button').onclick=e=>e.target.closest('.reminder').remove();$('#reminders').append(n)}
-function openEvent(e=null){$('#eventForm').reset();$('#reminders').innerHTML='';$('#eventId').value=e?.id||'';$('#seriesId').value=e?.series_id||'';$('#eventHeading').textContent=e?'Termin bearbeiten':'Termin anlegen';$('#deleteEvent').classList.toggle('hidden',!e);$('#eventDate').value=e?.event_date||iso(new Date());$('#eventType').value=e?.event_type||'appointment';$('#eventTitle').value=e?.title||'';$('#startTime').value=e?.start_time?.slice(0,5)||'';$('#endTime').value=e?.end_time?.slice(0,5)||'';$('#allDay').value=String(e?.all_day||false);$('#location').value=e?.location||'';$('#notes').value=e?.notes||'';$('#assignee').value=e?.assignee_id||'';$('#transportTo').value=e?.transport_to_id||'';$('#transportFrom').value=e?.transport_from_id||'';(e?.reminders||[member.default_reminder_minutes||15]).forEach(addReminder);$('#recurrence').value='none';$('#recurrenceEnd').value='';$('#eventDialog').showModal()}
-function payload(){return {family_id:member.family_id,event_type:$('#eventType').value,title:$('#eventTitle').value.trim(),event_date:$('#eventDate').value,start_time:$('#startTime').value||null,end_time:$('#endTime').value||null,all_day:$('#allDay').value==='true',location:$('#location').value.trim(),notes:$('#notes').value.trim(),assignee_id:$('#assignee').value||null,transport_to_id:$('#transportTo').value||null,transport_from_id:$('#transportFrom').value||null,reminders:$$('#reminders input').map(x=>Number(x.value)),created_by:user.id}}
-async function saveEvent(ev){ev.preventDefault();const p=payload(),id=$('#eventId').value,series=$('#seriesId').value;if(id&&series){pendingScope=async scope=>{if(scope!=='cancel'){const {error}=await sb.rpc('update_series_scope',{p_occurrence_id:id,p_scope:scope,p_patch:p});if(error)toast(error.message);else done()}};return $('#scopeDialog').showModal()}let r;if(id)r=await sb.from('events').update({...p,created_by:undefined,updated_at:new Date().toISOString()}).eq('id',id);else if($('#recurrence').value!=='none')r=await sb.rpc('create_event_series',{p_event:p,p_recurrence:$('#recurrence').value,p_until:$('#recurrenceEnd').value||null});else r=await sb.from('events').insert(p);if(r.error)toast(r.error.message);else done()}
-async function deleteEvent(){const id=$('#eventId').value,series=$('#seriesId').value;if(!confirm('Termin wirklich löschen?'))return;if(series){pendingScope=async scope=>{if(scope!=='cancel'){const {error}=await sb.rpc('delete_series_scope',{p_occurrence_id:id,p_scope:scope});if(error)toast(error.message);else done()}};return $('#scopeDialog').showModal()}const {error}=await sb.from('events').delete().eq('id',id);if(error)toast(error.message);else done()}
-async function done(){$('#eventDialog').close();$('#scopeDialog').close();toast('Gespeichert');await refreshAll()}
-function renderAdmin(){$('#adminContent').innerHTML=`<h2>Administration</h2><div class="admin-grid"><div class="card"><h3>Familienmitglieder</h3><div id="memberList"></div></div><div class="card"><h3>Mitglied einladen</h3><p>Die eingeladene Person braucht nur ein Konto und diesen Code. Kein Supabase-Zugriff.</p><label>E-Mail der Person<input id="inviteEmail" type="email" placeholder="oma@example.de"></label><button id="makeInvite" class="primary">Einladungscode erzeugen</button><div id="inviteResult"></div></div></div>`;$('#memberList').innerHTML=members.map(m=>`<div class="member"><span class="dot" style="background:${m.color}"></span><main><b>${esc(m.display_name)}</b><small>${m.role}</small></main>${member.role==='owner'||(member.role==='admin'&&m.role==='member')?`<button data-edit-member="${m.user_id}">Bearbeiten</button>`:''}</div>`).join('');$('#makeInvite').onclick=makeInvite;$$('[data-edit-member]').forEach(b=>b.onclick=()=>editMember(b.dataset.editMember))}
-async function makeInvite(){const email=$('#inviteEmail').value.trim();if(!email)return toast('Bitte E-Mail eingeben');const {data,error}=await sb.rpc('create_family_invitation',{p_email:email});if(error)return toast(error.message);$('#inviteResult').innerHTML=`<p>Code für ${esc(email)}:</p><div class="code">${esc(data)}</div><p class="small">Die Person öffnet die App, registriert sich und tippt auf „Mit Einladungscode beitreten“.</p>`}
-function editMember(id){const m=person(id);$('#settingsHeading').textContent='Mitglied bearbeiten';$('#settingsContent').innerHTML=`<label>Name<input id="mName" value="${esc(m.display_name)}"></label><label>Farbe<input id="mColor" type="color" value="${m.color}"></label><label>Rolle<select id="mRole"><option value="member">Mitglied</option><option value="admin">Administrator</option>${member.role==='owner'?'<option value="owner">Eigentümer</option>':''}</select></label><button id="saveMember" class="primary">Speichern</button>`;$('#mRole').value=m.role;$('#saveMember').onclick=async()=>{const {error}=await sb.rpc('admin_update_member',{p_user_id:id,p_role:$('#mRole').value,p_color:$('#mColor').value,p_display_name:$('#mName').value.trim()});if(error)toast(error.message);else{$('#settingsDialog').close();await refreshAll()}};$('#settingsDialog').showModal()}
-async function enablePush(){if(!('serviceWorker'in navigator)||!('PushManager'in window))return toast('Push wird auf diesem Gerät nicht unterstützt');if(!cfg.VAPID_PUBLIC_KEY)return toast('Push ist vom Eigentümer noch nicht fertig eingerichtet');const reg=await navigator.serviceWorker.register('./service-worker.js');const perm=await Notification.requestPermission();if(perm!=='granted')return toast('Benachrichtigungen wurden nicht erlaubt');const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64(cfg.VAPID_PUBLIC_KEY)});const {error}=await sb.from('push_subscriptions').upsert({user_id:user.id,endpoint:sub.endpoint,subscription:sub.toJSON(),user_agent:navigator.userAgent},{onConflict:'endpoint'});toast(error?error.message:'Push ist aktiviert')}
-function urlB64(s){const p='='.repeat((4-s.length%4)%4),b=(s+p).replace(/-/g,'+').replace(/_/g,'/'),r=atob(b);return Uint8Array.from([...r].map(c=>c.charCodeAt(0)))}
-function openSettings(action){$('#settingsDialog').showModal();if(action==='notifications'){$('#settingsHeading').textContent='Benachrichtigungen';$('#settingsContent').innerHTML=`<p>Erinnerungen werden entsprechend der Minutenangaben am Termin versendet.</p><label>Standard-Vorlauf in Minuten<input id="defaultReminder" type="number" min="0" value="${member.default_reminder_minutes}"></label><label><input id="notifyAssignments" type="checkbox" ${member.notify_assignments?'checked':''}> Neue eigene Aufgaben melden</label><label><input id="notifyChanges" type="checkbox" ${member.notify_changes?'checked':''}> Änderungen melden</label><button id="saveNotify" class="primary">Einstellungen speichern</button><button id="enablePush" class="secondary" style="width:100%;margin-top:10px">Push auf diesem Gerät aktivieren</button>`;$('#saveNotify').onclick=async()=>{const u={default_reminder_minutes:Number($('#defaultReminder').value),notify_assignments:$('#notifyAssignments').checked,notify_changes:$('#notifyChanges').checked};const {error}=await sb.from('family_members').update(u).eq('family_id',member.family_id).eq('user_id',user.id);if(error)toast(error.message);else{member={...member,...u};toast('Gespeichert')}};$('#enablePush').onclick=enablePush}else if(action==='profile'){$('#settingsHeading').textContent='Mein Profil';$('#settingsContent').innerHTML=`<label>Name<input id="profileName" value="${esc(member.display_name)}"></label><label>Farbe<input id="profileColor" type="color" value="${member.color}"></label><button id="saveProfile" class="primary">Speichern</button>`;$('#saveProfile').onclick=async()=>{const u={display_name:$('#profileName').value.trim(),color:$('#profileColor').value};const {error}=await sb.from('family_members').update(u).eq('family_id',member.family_id).eq('user_id',user.id);if(error)toast(error.message);else{$('#settingsDialog').close();await loadMembership()}}}else{toast('Auf dem iPhone: Safari → Teilen → Zum Home-Bildschirm');$('#settingsDialog').close()}}
-$('#toggleSignup').onclick=()=>{signup=!signup;$('#nameWrap').classList.toggle('hidden',!signup);$('#authSubmit').textContent=signup?'Konto anlegen':'Anmelden';$('#toggleSignup').textContent=signup?'Schon ein Konto? Anmelden':'Neues Konto anlegen'};
-$('#authForm').onsubmit=async e=>{e.preventDefault();const email=$('#email').value,password=$('#password').value;const r=signup?await sb.auth.signUp({email,password,options:{data:{display_name:$('#displayName').value.trim()}}}):await sb.auth.signInWithPassword({email,password});if(r.error)return toast(r.error.message);$('#authInfo').textContent=signup&&!r.data.session?'Bitte E-Mail bestätigen und danach anmelden.':'';if(r.data.session){user=r.data.user;await loadMembership()}};
-$('#createFamilyChoice').onclick=()=>{$('#createFamilyBox').classList.remove('hidden');$('#joinFamilyBox').classList.add('hidden')};$('#joinFamilyChoice').onclick=()=>{$('#joinFamilyBox').classList.remove('hidden');$('#createFamilyBox').classList.add('hidden')};
-$('#createFamilyBtn').onclick=async()=>{const {error}=await sb.rpc('create_family',{p_name:$('#familyName').value.trim()});if(error)toast(error.message);else await loadMembership()};
-$('#joinFamilyBtn').onclick=async()=>{const {error}=await sb.rpc('join_family',{p_code:$('#inviteCode').value.trim()});if(error)toast(error.message);else await loadMembership()};
-$('#logout').onclick=$('#onboardingLogout').onclick=async()=>{await sb.auth.signOut();location.reload()};
-$$('nav [data-view]').forEach(b=>b.onclick=()=>{$$('.view').forEach(v=>v.classList.remove('active'));$(`#${b.dataset.view}View`).classList.add('active');$$('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#title').textContent=b.querySelector('small')?.textContent||'Kalender'});
-$('#add').onclick=()=>openEvent();$('#refresh').onclick=refreshAll;$('#prevWeek').onclick=()=>{weekOffset--;renderWeek()};$('#nextWeek').onclick=()=>{weekOffset++;renderWeek()};$('#addReminder').onclick=()=>addReminder();$('#eventForm').onsubmit=saveEvent;$('#deleteEvent').onclick=deleteEvent;$$('[data-close]').forEach(b=>b.onclick=()=>$('#'+b.dataset.close).close());$$('#scopeDialog [data-scope]').forEach(b=>b.onclick=()=>{const f=pendingScope;pendingScope=null;f?.(b.dataset.scope)});$$('[data-filter]').forEach(b=>b.onclick=()=>{taskFilter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderTasks()});$$('#moreView [data-action]').forEach(b=>b.onclick=()=>openSettings(b.dataset.action));
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./service-worker.js').catch(()=>{});sb.auth.onAuthStateChange((_e,s)=>{if(!s)show('auth')});bootstrap();
+import { createClient } from './vendor/supabase.js';
+import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent } from './calendar-utils.js';
+
+const cfg = window.APP_CONFIG || {};
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+let sb, signup=false, user=null, member=null, members=[], events=[], series=[], weekOffset=0, taskFilter='mine', taskLimit=50;
+let refreshNumber=0, authNumber=0, pendingScope=null, recovery=false, initialized=false, currentView='today', toastTimer;
+const admin = () => ['owner','admin'].includes(member?.role);
+const toast = message => {
+  clearTimeout(toastTimer);
+  $('#toast').textContent=message; $('#toast').classList.add('show');
+  toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),5000);
+};
+const errorText = error => !navigator.onLine ? 'Offline: Zum Laden und Speichern ist eine Internetverbindung nötig.' :
+  (error?.message || 'Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.');
+function show(id) { ['auth','onboarding','app'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id)); }
+function clearSession() {
+  authNumber++; refreshNumber++; user=null; member=null; members=[]; events=[]; series=[];
+  weekOffset=0; currentView='today'; pendingScope=null;
+  $$('dialog[open]').forEach(d=>d.close());
+  ['todayList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
+  show('auth');
+}
+async function busy(button, action) {
+  if(button?.disabled) return;
+  if(!navigator.onLine) return toast(errorText());
+  if(button) button.disabled=true;
+  try { await action(); } catch(error) { toast(errorText(error)); }
+  finally { if(button) button.disabled=false; }
+}
+function check(result) { if(result.error) throw result.error; return result.data; }
+function connectionStatus() {
+  const offline=!navigator.onLine;
+  $('#connectionStatus').textContent=offline?'Offline · Kalenderdaten benötigen Internet':'';
+  $('#connectionStatus').classList.toggle('hidden',!offline);
+}
+function navigate(view) {
+  if(view==='admin'&&!admin()) view='today';
+  currentView=view;
+  $$('.view').forEach(v=>v.classList.toggle('active',v.id===view+'View'));
+  $$('nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+  $('#title').textContent={today:'Heute',week:'Woche',tasks:'Aufgaben',admin:'Admin',more:'Mehr'}[view];
+}
+async function loadMembership() {
+  const request=++authNumber, userId=user?.id;
+  if(!userId) return;
+  const data=check(await sb.from('family_members').select('*').eq('user_id',userId).maybeSingle());
+  if(request!==authNumber||userId!==user?.id) return;
+  if(!data) { member=null; show('onboarding'); return; }
+  member=data; show('app'); navigate(currentView); await refreshAll();
+}
+async function fetchEvents(start,end,family) {
+  const all=[], pageSize=500;
+  for(let offset=0;;offset+=pageSize) {
+    const page=check(await sb.from('events').select('*').eq('family_id',family).gte('event_date',start).lte('event_date',end)
+      .eq('is_cancelled',false).order('event_date').order('start_time',{nullsFirst:true}).order('id').range(offset,offset+pageSize-1));
+    all.push(...page);
+    if(page.length<pageSize) return all;
+  }
+}
+async function refreshAll() {
+  if(!member||!user) return;
+  const request=++refreshNumber, family=member.family_id, userId=user.id, offset=weekOffset;
+  const [start,end]=queryBounds(offset);
+  const [people,items,recurrences]=await Promise.all([
+    sb.from('family_members').select('*').eq('family_id',family).order('display_name'),
+    fetchEvents(start,end,family), sb.from('event_series').select('*').eq('family_id',family)
+  ]);
+  const loadedPeople=check(people), loadedSeries=check(recurrences);
+  if(request!==refreshNumber||family!==member?.family_id||userId!==user?.id) return;
+  members=loadedPeople; events=items; series=loadedSeries;
+  member=members.find(m=>m.user_id===userId);
+  if(!member) return loadMembership();
+  $('#avatar').textContent=(member.display_name||'?')[0].toUpperCase();
+  $('#adminNav').classList.toggle('hidden',!admin());
+  navigate(currentView); renderToday(); renderWeek(); renderTasks(); fillPeople();
+  if(admin()) renderAdmin(); else $('#adminContent').replaceChildren();
+}
+const person=id=>members.find(m=>m.user_id===id);
+const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️'}[type]||'📅');
+function card(event) {
+  const p=person(event.assignee_id)||person(event.transport_from_id)||person(event.transport_to_id), chips=[];
+  if(event.transport_to_id) chips.push('Bringt: '+esc(person(event.transport_to_id)?.display_name||'Unbekannt'));
+  if(event.transport_from_id) chips.push('Holt: '+esc(person(event.transport_from_id)?.display_name||'Unbekannt'));
+  if(event.assignee_id) chips.push('Zuständig: '+esc(person(event.assignee_id)?.display_name||'Unbekannt'));
+  return '<article class="event-card" tabindex="0" role="button" data-id="'+esc(event.id)+'" style="--person:'+safeColor(p?.color)+'"><small>'+
+    typeIcon(event.event_type)+' '+eventTime(event)+'</small><h3>'+esc(event.title)+'</h3>'+
+    (event.location?'<div>'+esc(event.location)+'</div>':'')+'<div class="chips">'+
+    chips.map(x=>'<span class="chip">'+x+'</span>').join('')+
+    (event.reminders||[]).map(x=>'<span class="chip">🔔 '+Number(x)+' Min. (vorbereitet)</span>').join('')+'</div></article>';
+}
+function bindCards() {
+  $$('.event-card').forEach(element=>{
+    const open=()=>openEvent(events.find(e=>e.id===element.dataset.id));
+    element.onclick=open; element.onkeydown=e=>{if(e.key==='Enter'||e.key===' ') { e.preventDefault(); open(); }};
+  });
+}
+function renderToday() {
+  const list=events.filter(e=>e.event_date===localDate()), next=nextEvent(list);
+  $('#todayList').innerHTML=list.length?list.map(card).join(''):'<div class="empty">Heute ist nichts eingetragen.</div>';
+  $('#nextTask').innerHTML=next?'<small>NÄCHSTER TERMIN</small><h2>'+esc(next.title)+'</h2><div>'+eventTime(next)+' · '+esc(person(next.assignee_id)?.display_name||'noch ungeklärt')+'</div>':
+    '<small>HEUTE</small><h2>Keine weiteren zeitgebundenen Termine</h2>';
+  bindCards();
+}
+function renderWeek() {
+  const [start,end]=weekBounds(weekOffset);
+  $('#weekRange').textContent=start.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+'–'+end.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
+  let html='';
+  for(let day=new Date(start);day<=end;day=addDays(day,1)) {
+    const list=events.filter(e=>e.event_date===localDate(day));
+    html+='<h3>'+day.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})+'</h3>'+
+      (list.length?list.map(card).join(''):'<div class="empty">Keine Termine</div>');
+  }
+  $('#weekList').innerHTML=html; bindCards();
+}
+function renderTasks() {
+  const today=localDate(), end=localDate(addDays(new Date(),120));
+  let list=events.filter(e=>e.event_date>=today&&e.event_date<=end&&['transport','care','bedtime'].includes(e.event_type));
+  if(taskFilter==='mine') list=list.filter(e=>[e.assignee_id,e.transport_to_id,e.transport_from_id].includes(user.id));
+  if(taskFilter==='open') list=list.filter(e=>!e.assignee_id&&!e.transport_to_id&&!e.transport_from_id);
+  $('#tasksList').innerHTML=list.length?list.slice(0,taskLimit).map(e=>'<h4>'+dateAtNoon(e.event_date).toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'})+'</h4>'+card(e)).join(''):'<div class="empty">Keine passenden Aufgaben.</div>';
+  $('#moreTasks').classList.toggle('hidden',list.length<=taskLimit); bindCards();
+}
+function fillPeople() {
+  const opts='<option value="">— ungeklärt —</option>'+members.map(m=>'<option value="'+esc(m.user_id)+'">'+esc(m.display_name)+'</option>').join('');
+  if(!$('#eventDialog').open) ['assignee','transportTo','transportFrom'].forEach(id=>$('#'+id).innerHTML=opts);
+}
+function addReminder(value=15) {
+  if($$('#reminders input').length>=10) return toast('Maximal zehn Erinnerungen pro Termin');
+  const node=$('#reminderTpl').content.cloneNode(true);
+  node.querySelector('input').value=value;
+  node.querySelector('button').onclick=e=>e.target.closest('.reminder').remove();
+  $('#reminders').append(node);
+}
+function toggleAllDay() {
+  const allDay=$('#allDay').value==='true';
+  ['startTime','endTime'].forEach(id=>$('#'+id).disabled=allDay);
+}
+function canEdit(event) { return admin()||[event.created_by,event.assignee_id,event.transport_to_id,event.transport_from_id].includes(user.id); }
+function openEvent(event=null) {
+  if(!member) return;
+  $('#eventForm').reset(); $('#reminders').replaceChildren();
+  $('#eventId').value=event?.id||''; $('#seriesId').value=event?.series_id||'';
+  $('#eventHeading').textContent=event?'Termin bearbeiten':'Termin anlegen';
+  const allowed=!event||canEdit(event);
+  const deletable=event&&(admin()||event.created_by===user.id);
+  $('#deleteEvent').classList.toggle('hidden',!deletable);
+  const values={eventDate:event?.event_date||localDate(),eventType:event?.event_type||'appointment',eventTitle:event?.title||'',
+    startTime:event?.start_time?.slice(0,5)||'',endTime:event?.end_time?.slice(0,5)||'',allDay:String(event?.all_day||false),
+    location:event?.location||'',notes:event?.notes||'',assignee:event?.assignee_id||'',transportTo:event?.transport_to_id||'',transportFrom:event?.transport_from_id||''};
+  Object.entries(values).forEach(([id,value])=>$('#'+id).value=value);
+  (event?.reminders??[member.default_reminder_minutes??15]).forEach(addReminder);
+  const recurrence=series.find(s=>s.id===event?.series_id);
+  $('#recurrence').value=recurrence?.recurrence||'none';
+  $('#recurrenceEnd').value=recurrence?.ends_on||'';
+  $('#recurrence').disabled=Boolean(event); $('#recurrenceEnd').disabled=Boolean(event);
+  $('#seriesInfo').textContent=event?.series_id?'Rhythmus und Serienende sind hier schreibgeschützt. Einzelne Termine, Datum, Zeiten und Zuständigkeiten können geändert werden.':
+    event?'Ein bestehender Einzeltermin bleibt ein Einzeltermin. Für eine neue Serie bitte einen neuen Termin anlegen.':'Ohne Enddatum wird die Serie für ein Jahr angelegt (maximal zwei Jahre).';
+  $('#saveEvent').disabled=!allowed;
+  if(!allowed) $('#seriesInfo').textContent='Du kannst diesen Termin ansehen, aber nicht bearbeiten.';
+  toggleAllDay(); $('#eventDialog').showModal();
+}
+function payload() {
+  const allDay=$('#allDay').value==='true';
+  return {family_id:member.family_id,event_type:$('#eventType').value,title:$('#eventTitle').value.trim(),event_date:$('#eventDate').value,
+    start_time:allDay?null:$('#startTime').value||null,end_time:allDay?null:$('#endTime').value||null,all_day:allDay,
+    location:$('#location').value.trim(),notes:$('#notes').value.trim(),assignee_id:$('#assignee').value||null,
+    transport_to_id:$('#transportTo').value||null,transport_from_id:$('#transportFrom').value||null,
+    reminders:[...new Set($$('#reminders input').map(x=>Number(x.value)))]};
+}
+function validateEvent(data) {
+  if(!data.title) throw new Error('Bitte einen Titel eingeben');
+  if(data.end_time&&(!data.start_time||data.end_time<data.start_time)) throw new Error('Das Ende muss nach dem Beginn liegen (gleicher Tag).');
+  if(data.reminders.some(n=>!Number.isInteger(n)||n<0||n>10080)) throw new Error('Erinnerungen: ganze Minuten von 0 bis 10080');
+}
+function askScope(action) {
+  pendingScope=action;
+  $$('#scopeDialog [data-scope]').forEach(b=>b.disabled=!admin()&&['series','following'].includes(b.dataset.scope));
+  $('#scopeDialog').showModal();
+}
+async function done() {
+  $('#eventDialog').close(); if($('#scopeDialog').open) $('#scopeDialog').close();
+  toast('Gespeichert'); await refreshAll();
+}
+async function saveEvent(event) {
+  event.preventDefault();
+  await busy($('#saveEvent'),async()=>{
+    const data=payload(),id=$('#eventId').value,seriesId=$('#seriesId').value;
+    validateEvent(data);
+    if(id&&seriesId) return askScope(async scope=>{
+      check(await sb.rpc('update_series_scope',{p_occurrence_id:id,p_scope:scope,p_patch:data})); await done();
+    });
+    if(id) {
+      const {family_id,...changes}=data;
+      const rows=check(await sb.from('events').update(changes).eq('id',id).select('id'));
+      if(rows.length!==1) throw new Error('Nicht gespeichert: Der Termin fehlt oder du hast keine Berechtigung.');
+    } else if($('#recurrence').value!=='none') {
+      check(await sb.rpc('create_event_series',{p_event:data,p_recurrence:$('#recurrence').value,p_until:$('#recurrenceEnd').value||null}));
+    } else {
+      check(await sb.from('events').insert({...data,created_by:user.id}).select('id').single());
+    }
+    await done();
+  });
+}
+async function deleteEvent() {
+  if(!confirm('Termin wirklich löschen?')) return;
+  await busy($('#deleteEvent'),async()=>{
+    const id=$('#eventId').value;
+    if($('#seriesId').value) return askScope(async scope=>{
+      check(await sb.rpc('delete_series_scope',{p_occurrence_id:id,p_scope:scope})); await done();
+    });
+    const rows=check(await sb.from('events').delete().eq('id',id).select('id'));
+    if(rows.length!==1) throw new Error('Nicht gelöscht: Der Termin fehlt oder du hast keine Berechtigung.');
+    await done();
+  });
+}
+function renderAdmin() {
+  $('#adminContent').innerHTML='<h2>Administration</h2><div class="admin-grid"><div class="card"><h3>Familienmitglieder</h3><div id="memberList"></div></div>'+
+    '<div class="card"><h3>Mitglied einladen</h3><p>Der Code gilt sieben Tage und nur für die angegebene E-Mail-Adresse.</p><label>E-Mail der Person<input id="inviteEmail" type="email" maxlength="254" placeholder="oma@example.de"></label><button id="makeInvite" class="primary">Einladungscode erzeugen</button><div id="inviteResult"></div></div></div>';
+  $('#memberList').innerHTML=members.map(m=>'<div class="member"><span class="dot" style="background:'+safeColor(m.color)+'"></span><main><b>'+esc(m.display_name)+'</b><small>'+esc({owner:'Eigentümer',admin:'Administrator',member:'Mitglied'}[m.role])+'</small></main>'+
+    (member.role==='owner'||m.role==='member'?'<button data-edit-member="'+esc(m.user_id)+'">Bearbeiten</button>':'')+'</div>').join('');
+  $('#makeInvite').onclick=()=>busy($('#makeInvite'),async()=>{
+    if(!$('#inviteEmail').reportValidity()||!$('#inviteEmail').value.trim()) throw new Error('Bitte eine gültige E-Mail eingeben');
+    const email=$('#inviteEmail').value.trim(), code=check(await sb.rpc('create_family_invitation',{p_email:email}));
+    $('#inviteResult').innerHTML='<p>Code für '+esc(email)+':</p><div class="code">'+esc(code)+'</div>';
+  });
+  $$('[data-edit-member]').forEach(b=>b.onclick=()=>editMember(b.dataset.editMember));
+}
+function editMember(id) {
+  const target=person(id),owner=member.role==='owner';
+  $('#settingsHeading').textContent='Mitglied bearbeiten';
+  $('#settingsContent').innerHTML='<label>Name<input id="mName" maxlength="80" value="'+esc(target.display_name)+'"></label><label>Farbe<input id="mColor" type="color" value="'+safeColor(target.color)+'"></label>'+
+    '<label>Rolle<select id="mRole"><option value="member">Mitglied</option>'+(owner?'<option value="admin">Administrator</option><option value="owner">Eigentümer</option>':'')+'</select></label><button id="saveMember" class="primary">Speichern</button>';
+  $('#mRole').value=target.role; $('#mRole').disabled=!owner;
+  $('#saveMember').onclick=()=>busy($('#saveMember'),async()=>{
+    check(await sb.rpc('admin_update_member',{p_user_id:id,p_role:$('#mRole').value,p_color:$('#mColor').value,p_display_name:$('#mName').value.trim()}));
+    $('#settingsDialog').close(); await refreshAll();
+  });
+  $('#settingsDialog').showModal();
+}
+async function updateProfile(data) {
+  const rows=check(await sb.from('family_members').update(data).eq('family_id',member.family_id).eq('user_id',user.id).select('user_id'));
+  if(rows.length!==1) throw new Error('Profil konnte nicht gespeichert werden');
+  await loadMembership();
+}
+function openSettings(action) {
+  if(action==='install') return toast('iPhone: In Safari öffnen → Teilen → Zum Home-Bildschirm.');
+  $('#settingsDialog').showModal();
+  if(action==='notifications') {
+    $('#settingsHeading').textContent='Benachrichtigungen';
+    $('#settingsContent').innerHTML='<p>Push ist noch nicht eingerichtet. Erinnerungszeiten und Einstellungen werden gespeichert, aber es werden noch keine Nachrichten versendet.</p>'+
+      '<label>Standard-Vorlauf in Minuten<input id="defaultReminder" type="number" min="0" max="10080" step="1" value="'+member.default_reminder_minutes+'"></label>'+
+      '<label class="checkbox-label"><input id="notifyAssignments" type="checkbox" '+(member.notify_assignments?'checked':'')+'> Neue eigene Aufgaben melden (vorbereitet)</label>'+
+      '<label class="checkbox-label"><input id="notifyChanges" type="checkbox" '+(member.notify_changes?'checked':'')+'> Änderungen melden (vorbereitet)</label><button id="saveNotify" class="primary">Einstellungen speichern</button>';
+    $('#saveNotify').onclick=()=>busy($('#saveNotify'),async()=>{
+      const minutes=Number($('#defaultReminder').value);
+      if(!Number.isInteger(minutes)||minutes<0||minutes>10080) throw new Error('Bitte ganze Minuten von 0 bis 10080 eingeben');
+      await updateProfile({default_reminder_minutes:minutes,notify_assignments:$('#notifyAssignments').checked,notify_changes:$('#notifyChanges').checked});
+      $('#settingsDialog').close(); toast('Gespeichert');
+    });
+  } else {
+    $('#settingsHeading').textContent='Mein Profil';
+    $('#settingsContent').innerHTML='<label>Name<input id="profileName" maxlength="80" value="'+esc(member.display_name)+'"></label><label>Farbe<input id="profileColor" type="color" value="'+safeColor(member.color)+'"></label><button id="saveProfile" class="primary">Speichern</button>';
+    $('#saveProfile').onclick=()=>busy($('#saveProfile'),async()=>{
+      await updateProfile({display_name:$('#profileName').value.trim(),color:$('#profileColor').value});
+      $('#settingsDialog').close(); toast('Gespeichert');
+    });
+  }
+}
+function bindUI() {
+  $('#toggleSignup').onclick=()=>{
+    signup=!signup; $('#nameWrap').classList.toggle('hidden',!signup);
+    $('#authSubmit').textContent=signup?'Konto anlegen':'Anmelden';
+    $('#toggleSignup').textContent=signup?'Schon ein Konto? Anmelden':'Neues Konto anlegen';
+    $('#password').minLength=signup?12:6; $('#password').autocomplete=signup?'new-password':'current-password';
+  };
+  $('#authForm').onsubmit=e=>{e.preventDefault(); busy($('#authSubmit'),async()=>{
+    const email=$('#email').value.trim(), password=$('#password').value;
+    const result=signup?await sb.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname,data:{display_name:$('#displayName').value.trim()}}}):
+      await sb.auth.signInWithPassword({email,password});
+    const data=check(result); $('#password').value='';
+    $('#authInfo').textContent=signup&&!data.session?'Bitte E-Mail bestätigen und danach anmelden.':'';
+    if(data.session) { user=data.user; await loadMembership(); }
+  }); };
+  $('#forgotPassword').onclick=()=>busy($('#forgotPassword'),async()=>{
+    const email=$('#email').value.trim();
+    if(!email||!$('#email').reportValidity()) throw new Error('Bitte zuerst deine E-Mail-Adresse eingeben');
+    check(await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname+'?recovery=1'}));
+    $('#authInfo').textContent='Falls ein Konto existiert, erhältst du eine E-Mail zum Zurücksetzen.';
+  });
+  $('#passwordForm').onsubmit=e=>{e.preventDefault(); busy($('#savePassword'),async()=>{
+    if($('#newPassword').value!==$('#confirmPassword').value) throw new Error('Die Passwörter stimmen nicht überein');
+    check(await sb.auth.updateUser({password:$('#newPassword').value}));
+    $('#passwordForm').reset(); $('#passwordDialog').close(); recovery=false;
+    history.replaceState(null,'',location.pathname); toast('Passwort geändert'); await loadMembership();
+  }); };
+  $('#cancelPassword').onclick=()=>{recovery=false; $('#passwordForm').reset(); $('#passwordDialog').close(); history.replaceState(null,'',location.pathname);};
+  $('#createFamilyChoice').onclick=()=>{$('#createFamilyBox').classList.remove('hidden');$('#joinFamilyBox').classList.add('hidden');};
+  $('#joinFamilyChoice').onclick=()=>{$('#joinFamilyBox').classList.remove('hidden');$('#createFamilyBox').classList.add('hidden');};
+  $('#createFamilyBtn').onclick=()=>busy($('#createFamilyBtn'),async()=>{check(await sb.rpc('create_family',{p_name:$('#familyName').value.trim()}));await loadMembership();});
+  $('#joinFamilyBtn').onclick=()=>busy($('#joinFamilyBtn'),async()=>{check(await sb.rpc('join_family',{p_code:$('#inviteCode').value.trim()}));await loadMembership();});
+  const logout=button=>busy(button,async()=>{check(await sb.auth.signOut());clearSession();});
+  $('#logout').onclick=()=>logout($('#logout')); $('#onboardingLogout').onclick=()=>logout($('#onboardingLogout'));
+  $$('nav [data-view]').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
+  $('#add').onclick=()=>openEvent(); $('#avatar').onclick=()=>openSettings('profile');
+  $('#refresh').onclick=()=>busy($('#refresh'),refreshAll);
+  const changeWeek=async delta=>{weekOffset+=delta; $('#weekList').innerHTML='<div class="empty">Termine werden geladen …</div>'; try{await refreshAll();}catch(error){$('#weekList').innerHTML='<div class="empty">Termine konnten nicht geladen werden. Bitte aktualisieren.</div>';toast(errorText(error));}};
+  $('#prevWeek').onclick=()=>changeWeek(-1); $('#nextWeek').onclick=()=>changeWeek(1);
+  $('#addReminder').onclick=()=>addReminder(); $('#allDay').onchange=toggleAllDay;
+  $('#eventForm').onsubmit=saveEvent; $('#deleteEvent').onclick=deleteEvent;
+  $$('[data-close]').forEach(b=>b.onclick=()=>$('#'+b.dataset.close).close());
+  $('#scopeDialog').addEventListener('close',()=>{pendingScope=null;});
+  $$('#scopeDialog [data-scope]').forEach(b=>b.onclick=()=>{
+    if(b.dataset.scope==='cancel') { pendingScope=null; $('#scopeDialog').close(); return; }
+    return busy(b,async()=>{
+    const action=pendingScope;
+    if(b.dataset.scope==='cancel') { pendingScope=null; $('#scopeDialog').close(); return; }
+    if(!action) return;
+    $$('#scopeDialog button').forEach(x=>x.disabled=true);
+    try { await action(b.dataset.scope); }
+    finally { if($('#scopeDialog').open) $$('#scopeDialog [data-scope]').forEach(x=>x.disabled=!admin()&&['following','series'].includes(x.dataset.scope)); }
+    });
+  });
+  $$('[data-filter]').forEach(b=>b.onclick=()=>{taskFilter=b.dataset.filter;taskLimit=50;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderTasks();});
+  $('#moreTasks').onclick=()=>{taskLimit+=50;renderTasks();};
+  $$('#moreView [data-action]').forEach(b=>b.onclick=()=>openSettings(b.dataset.action));
+}
+async function setupPwa() {
+  if(!('serviceWorker' in navigator)) return;
+  try {
+    const reg=await navigator.serviceWorker.register('./service-worker.js');
+    const offerUpdate=()=>{
+      if(!reg.waiting||!navigator.serviceWorker.controller) return;
+      $('#updateApp').classList.remove('hidden');
+      $('#updateApp').onclick=()=>{ $$('dialog[open]').forEach(d=>d.close()); reg.waiting.postMessage({type:'SKIP_WAITING'}); };
+    };
+    offerUpdate();
+    reg.addEventListener('updatefound',()=>reg.installing?.addEventListener('statechange',offerUpdate));
+    navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload());
+    await reg.update();
+  } catch { console.warn('PWA-Registrierung fehlgeschlagen'); }
+}
+async function start() {
+  connectionStatus(); window.addEventListener('offline',connectionStatus);
+  window.addEventListener('online',()=>{connectionStatus();if(member)refreshAll().catch(e=>toast(errorText(e)));});
+  try {
+    sb=createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
+    bindUI();
+    recovery=new URLSearchParams(location.search).get('recovery')==='1'||new URLSearchParams(location.hash.slice(1)).get('type')==='recovery';
+    sb.auth.onAuthStateChange((event,session)=>{
+      if(event==='PASSWORD_RECOVERY') recovery=true;
+      // Supabase callbacks must not await other auth methods while its lock is held.
+      setTimeout(()=>{
+        if(!session) { clearSession(); return; }
+        const changed=user?.id!==session.user.id; user=session.user;
+        if(recovery&&!$('#passwordDialog').open) $('#passwordDialog').showModal();
+        if(initialized&&(changed||event==='SIGNED_IN')) loadMembership().catch(e=>toast(errorText(e)));
+      },0);
+    });
+    const data=check(await sb.auth.getSession());
+    if(data.session) {
+      user=data.session.user;
+      if(recovery) $('#passwordDialog').showModal();
+      await loadMembership();
+    } else show('auth');
+    initialized=true;
+  } catch(error) { $('#authInfo').textContent=errorText(error); toast(errorText(error)); }
+  setupPwa();
+}
+start();

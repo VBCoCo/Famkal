@@ -1,184 +1,124 @@
-# Leonhards Familienkalender – einfache Einrichtung
+# Leonhards Familienkalender — Famkal 1.1.0
 
-Diese Version ist so aufgebaut, dass **nur der Eigentümer einmalig GitHub und Supabase einrichtet**. Mama, Oma und weitere Mitglieder benutzen danach ausschließlich die Web-App. Sie müssen weder SQL ausführen noch ein Supabase-Konto besitzen.
+Bestehendes Projekt, bereinigt am 01.10.2026.
 
-## Was enthalten ist
+- Webseite: https://vbcoco.github.io/Famkal/
+- Repository: VBCoCo/Famkal
+- Supabase-Projekt: fbjvlkgvsatnjrtoigvt
+- Für Arbeiten mit verbundenen Konten ausschließlich **RC Apple** verwenden.
 
-- Anmeldung mit E-Mail und Passwort
-- Einrichtungsassistent in der Weboberfläche
-- Rollen: Eigentümer, Administrator und Mitglied
-- Einladungscode, gebunden an die E-Mail-Adresse
-- Mitglieder, Rollen, Namen und Farben im Admin-Bereich verwalten
-- Tages-, Wochen- und Aufgabenansicht
-- Schule, Betreuung, Fahrdienst, Termin und Bettgehzeit
-- beliebige Erinnerungszeiten in Minuten
-- Serientermine und einzelne Ausnahmen
-- installierbare PWA
-- vorbereitete echte Push-Benachrichtigungen
+## Nutzung
 
----
+Mit E-Mail und Passwort anmelden. Bei neuen Konten ist die E-Mail-Bestätigung
+erforderlich. Neue Familien können in der App angelegt werden. Einladungen sind
+sieben Tage gültig und an die bestätigte E-Mail-Adresse gebunden.
 
-# Teil A – einmalig durch den Eigentümer
+Heute, Woche und Aufgaben unterstützen Schule, Betreuung, Bringen/Abholen,
+allgemeine Termine und Bettgehzeit. Ganztägige Termine haben keine Uhrzeit.
+Aufgaben zeigen die nächsten 120 Tage; weitere Einträge werden über
+„Weitere Aufgaben anzeigen“ sichtbar. Wochen laden beim Blättern nach.
 
-## 1. Supabase-Projekt anlegen
+## Rollen und Berechtigungen
 
-1. Bei Supabase ein neues Projekt anlegen.
-2. Im **SQL Editor** eine neue Abfrage öffnen.
-3. Den kompletten Inhalt von `supabase.sql` hineinkopieren und einmal ausführen.
-4. Unter **Authentication → Providers** E-Mail/Passwort aktivieren.
-5. Für einen einfachen Start kann unter Authentication eingestellt werden, ob neue E-Mail-Adressen erst bestätigt werden müssen.
+- **Owner:** Kalender und Mitglieder verwalten; Admin-/Owner-Rollen vergeben.
+  Der letzte Owner kann nicht herabgestuft werden. Eine Übertragung erfolgt,
+  indem zunächst ein anderer Owner ernannt wird.
+- **Admin:** Kalender und Serien verwalten, Mitglieder einladen und Name/Farbe
+  normaler Mitglieder bearbeiten. Keine Admin-/Owner-Rollen ändern.
+- **Member:** Termine und Serien anlegen; eigene oder zugewiesene Termine
+  bearbeiten, selbst angelegte Termine löschen. Bei Serien nur einzelne
+  berechtigte Vorkommen bearbeiten oder eigene einzelne Vorkommen stornieren.
 
-Das SQL wird nur einmal von dir ausgeführt. Familienmitglieder müssen das niemals tun.
+Alle Rollen können ihr eigenes Profil und vorbereitete Erinnerungseinstellungen
+ändern. Direkte Änderungen an Rolle, Familien-ID, Benutzer-ID, Ersteller und
+Serienzuordnung sind für App-Benutzer gesperrt. Zuständige Personen und Serien
+müssen zur gleichen Familie gehören. RLS gilt auf allen Anwendungstabellen.
 
-## 2. Zugangsdaten in die Webseite eintragen
+Privilegierte Funktionen liegen im nicht exponierten Schema private. Öffentliche
+RPCs sind SECURITY INVOKER und delegieren an kontrollierte interne Funktionen.
+Nicht angemeldete Benutzer haben weder Tabellen- noch RPC-Zugriff.
 
-In Supabase unter **Project Settings → API** kopieren:
+## Serien
 
-- Project URL
-- anon/public key
+Wiederholung: täglich, Mo–Fr, wöchentlich oder zweiwöchentlich. Ohne Enddatum wird
+ein Jahr angelegt; höchstens zwei Jahre sind möglich. Vorkommen werden als
+konkrete Termine gespeichert.
 
-Dann `config.js` öffnen und einsetzen:
+Einzelne Vorkommen können als Ausnahmen bearbeitet werden. Owner/Admins können
+einen Termin und alle folgenden oder die gesamte Serie bearbeiten. Eine Änderung
+des Datums verschiebt reguläre betroffene Vorkommen um den gleichen Tagesabstand.
+Andere individuelle Ausnahmen bleiben unverändert. Ganztägig und Uhrzeiten werden
+übernommen. Stornierte Vorkommen werden nicht wieder aktiviert.
 
-```js
-window.APP_CONFIG = {
-  SUPABASE_URL: "https://DEIN-PROJEKT.supabase.co",
-  SUPABASE_ANON_KEY: "DEIN-ANON-KEY",
-  VAPID_PUBLIC_KEY: "",
-  APP_NAME: "Leonhards Familienkalender"
-};
-```
+Rhythmus und Enddatum bestehender Serien sind im Editor bewusst schreibgeschützt:
+Es wird keine vermeintliche Änderung angeboten, die im Backend wirkungslos bleibt.
+Um den Rhythmus zu ändern, alte Vorkommen stornieren und eine neue Serie anlegen.
 
-Der `service_role`-Schlüssel darf niemals in `config.js` oder GitHub stehen.
+## PWA / iPhone
 
-## 3. GitHub Pages veröffentlichen
+In Safari öffnen → Teilen → Zum Home-Bildschirm. App-Icons und alle
+JavaScript-Abhängigkeiten werden mitgeliefert. Ein Update-Hinweis aktiviert eine
+bereitstehende neue Version; dabei werden offene Formulare geschlossen.
 
-1. Ein neues GitHub-Repository erstellen.
-2. Alle Dateien aus diesem Ordner hochladen.
-3. In GitHub **Settings → Pages** öffnen.
-4. **Deploy from a branch**, Branch `main`, Ordner `/root` auswählen.
-5. Die angezeigte GitHub-Pages-Adresse öffnen.
-6. Diese Adresse in Supabase unter **Authentication → URL Configuration** als Site URL und Redirect URL eintragen.
+Offline ist nur die App-Oberfläche verfügbar. Login, Kalenderdaten und Schreiben
+benötigen Internet. Persönliche Kalenderdaten werden nicht im Service-Worker-Cache
+gespeichert. Bei Abmeldung werden angezeigte Familieninformationen geleert.
 
-## 4. Ersten Zugang anlegen
+## Benachrichtigungen: noch nicht eingerichtet
 
-1. Die veröffentlichte Webseite öffnen.
-2. **Neues Konto anlegen** auswählen.
-3. Mit deiner E-Mail registrieren und gegebenenfalls die E-Mail bestätigen.
-4. Anmelden.
-5. **Neue Familie erstellen** auswählen.
-6. Einen Namen eingeben, beispielsweise „Leonhards Familienkalender“.
+Erinnerungsminuten (0 bis 10080, maximal zehn Angaben) und Benachrichtigungswünsche
+werden gespeichert. **Es findet noch kein Push-, E-Mail- oder Hintergrundversand
+statt.** Die Oberfläche weist darauf hin; sie meldet keine falsche Aktivierung.
 
-Du wirst automatisch Eigentümer.
+Für einen späteren Ausbau fehlen noch VAPID-Schlüssel, eine abgesicherte
+send-reminders-Edge-Function, ein Zeitplan und Zustelltests einschließlich iPhone.
+Private VAPID-/Cron-Schlüssel und service_role dürfen nie ins Repository gelangen.
 
----
+## Datenbank / Migration
 
-# Teil B – Frau oder Oma einladen
+Die bestehende Datenbank wurde über folgende gezielte Migration aktualisiert:
 
-## Was du als Eigentümer machst
+supabase/migrations/20261001175614_harden_famkal_v110.sql
 
-1. In der App unten **Admin** öffnen.
-2. Unter **Mitglied einladen** die E-Mail-Adresse der Person eingeben.
-3. **Einladungscode erzeugen** drücken.
-4. Den angezeigten Code weitergeben.
+Sie erhält vorhandene Daten. **Nicht erneut auf dem bereits migrierten Projekt
+ausführen.** Weitere Änderungen benötigen eigene Migrationen.
 
-## Was die eingeladene Person macht
+supabase.txt ist nur das historische Einrichtungsskript der ursprünglichen
+Version. Es enthält überholte Sicherheitsregeln und darf nicht zur Neuinstallation
+oder als Reparatur auf der aktuellen Datenbank ausgeführt werden.
 
-1. Die normale Kalender-Webseite öffnen.
-2. **Neues Konto anlegen** wählen.
-3. Genau die E-Mail-Adresse verwenden, für die der Einladungscode erstellt wurde.
-4. Anmelden.
-5. **Mit Einladungscode beitreten** drücken.
-6. Code eingeben und **Beitreten** drücken.
+## Entwicklung und Prüfungen
 
-Danach erscheint sofort der gemeinsame Kalender. Es ist kein Supabase-Zugang, kein SQL und keine GitHub-Einrichtung erforderlich.
+Node.js 22+:
 
-Der Code ist sieben Tage gültig und an die E-Mail-Adresse gebunden.
+    npm ci
+    npm run build
+    npm test
+    npm audit
 
----
+GitHub Pages liefert die eingecheckten statischen Dateien direkt aus. Das
+Supabase-Browserpaket ist fest versioniert und wird als vendor/supabase.js
+gebündelt; es gibt keinen Laufzeitimport von einem fremden CDN.
 
-# Rollen
+tests/security.sql prüft Rollen, Familienisolierung, Einladung, Profil,
+NULL-Berechtigungsprüfung, Serien/Ausnahmen und Datenvalidierung im SQL-Tool.
+Die gesamte Prüfung läuft in einer Transaktion mit künstlichen Fixtures und
+ROLLBACK. Keine echten Konten müssen hierfür angemeldet werden.
 
-## Eigentümer
+## Noch offene Plattformprüfung
 
-- vollständige Kontrolle
-- Administratoren ernennen
-- Eigentümerrolle übertragen
-- Mitglieder, Einladungen, Farben und Rollen verwalten
-- komplette Serien ändern oder löschen
+Der Supabase-Sicherheitsberater meldet nach der Bereinigung weiterhin deaktivierten
+Schutz vor kompromittierten Passwörtern. Dieser Dashboard-Schalter ist über die
+vorhandene Verbindung nicht schreibbar; Tarifverfügbarkeit prüfen.
 
-## Administrator
+Auth Site URL und erlaubte Redirect URLs müssen auf die genaue Pages-Adresse
+passen (inklusive /Famkal/; Passwort-Recovery nutzt ?recovery=1). Rate-Limits,
+Passwort-Mindestlänge und CAPTCHA müssen im Dashboard überprüft werden. Die
+Oberfläche verlangt für neue/ersetzte Passwörter zwölf Zeichen; das ersetzt nicht
+die serverseitige Einstellung. Bestehende kürzere Passwörter werden beim Login
+nicht ausgesperrt.
 
-- Kalender und Serien verwalten
-- Mitglieder einladen
-- normale Mitglieder verwalten
-- keine Eigentümerrolle vergeben oder entziehen
-
-## Mitglied
-
-- Kalender sehen
-- Termine anlegen
-- eigene oder zugewiesene Aufgaben bearbeiten
-- eigene Farbe, Benachrichtigungen und Standard-Vorlaufzeit einstellen
-
-Die Rechte werden zusätzlich in der Supabase-Datenbank abgesichert.
-
----
-
-# Push-Benachrichtigungen einrichten
-
-Dieser Teil wird ebenfalls nur einmal vom Eigentümer eingerichtet.
-
-## 1. VAPID-Schlüssel erzeugen
-
-Ein VAPID-Schlüsselpaar erzeugen. Den öffentlichen Schlüssel in `config.js` als `VAPID_PUBLIC_KEY` eintragen.
-
-## 2. Edge Function bereitstellen
-
-Die Funktion liegt unter:
-
-`supabase/functions/send-reminders/index.ts`
-
-Mit der Supabase CLI bereitstellen:
-
-```bash
-supabase functions deploy send-reminders --no-verify-jwt
-```
-
-In Supabase als Function Secrets hinterlegen:
-
-- `VAPID_PUBLIC_KEY`
-- `VAPID_PRIVATE_KEY`
-- `VAPID_SUBJECT`, zum Beispiel `mailto:deine-adresse@example.de`
-- `CRON_SECRET`, ein selbst gewähltes langes Kennwort
-
-`SUPABASE_URL` und `SUPABASE_SERVICE_ROLE_KEY` stehen Edge Functions normalerweise als Umgebungsvariablen zur Verfügung.
-
-## 3. Minütlichen Aufruf einrichten
-
-Die Edge Function muss einmal pro Minute aufgerufen werden. Dabei muss der Header `x-cron-secret` den Wert deines `CRON_SECRET` enthalten.
-
-## 4. Auf jedem Handy aktivieren
-
-Jede Person öffnet in der App:
-
-**Mehr → Benachrichtigungen → Push auf diesem Gerät aktivieren**
-
-Auf dem iPhone muss die Webseite zuerst in Safari über **Teilen → Zum Home-Bildschirm** installiert und danach über das App-Symbol geöffnet werden.
-
-Die Erinnerung wird nur an Personen geschickt, die beim Termin als zuständig, bringt oder holt eingetragen sind. Beispiele:
-
-- Abholen in 15 Minuten
-- Bettgehzeit in 5 Minuten
-
----
-
-# Dateien
-
-- `index.html` – Oberfläche
-- `styles.css` – Gestaltung
-- `app.js` – Kalender-, Rollen- und Einladungslogik
-- `config.js` – Supabase- und Push-Konfiguration
-- `supabase.sql` – Datenbank und sichere Berechtigungen
-- `service-worker.js` – Installation, Offline-Grundfunktion und Push-Anzeige
-- `manifest.webmanifest` – PWA-Einstellungen
-- `supabase/functions/send-reminders/index.ts` – serverseitiger Push-Versand
+HTTPS ist aktiv. CSP wird als Meta-Tag gesetzt. GitHub Pages erlaubt keine freien
+Security-Response-Header; frame-ancestors kann daher hier nicht per Meta-Tag
+erzwungen werden. Eine andere Hostinglösung ist dafür später optional, nicht
+Voraussetzung für diese Bereinigung.

@@ -1,4 +1,6 @@
--- Leonhards Familienkalender: einmalig vom Eigentümer im Supabase SQL Editor ausführen.
+-- HISTORISCHES EINRICHTUNGSSKRIPT. Nicht auf dem aktuellen Projekt ausführen!
+-- Enthält überholte Sicherheitsregeln. Aktueller Stand: README.md und
+-- supabase/migrations/20261001175614_harden_famkal_v110.sql.
 create extension if not exists pgcrypto;
 
 create table public.families(
