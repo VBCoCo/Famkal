@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.3.0 (vorbereitet)
+# Leonhards Familienkalender — Famkal 1.3.0
 
 ## Einladungsbasierte Konten ohne SMTP (1.3.0)
 
@@ -40,9 +40,12 @@ Bestehendes Projekt, bereinigt am 01.10.2026.
 
 ## Nutzung
 
-Mit E-Mail und Passwort anmelden. Bei neuen Konten ist die E-Mail-Bestätigung
-erforderlich. Neue Familien können in der App angelegt werden. Einladungen sind
-sieben Tage gültig und an die bestätigte E-Mail-Adresse gebunden.
+Mit E-Mail und Passwort anmelden. Neue Konten entstehen ausschließlich durch
+persönliche Einladungslinks eines Owners/Admins. Unter Familie wird der Link
+erzeugt und anschließend persönlich weitergegeben. Er gilt höchstens eine Stunde
+und ist nur einmal einlösbar. Die eingeladene Person setzt ein Passwort mit
+mindestens zwölf Zeichen, Buchstaben und Ziffern. Neue Familien können nicht
+öffentlich angelegt werden; bestehende Familien bleiben erhalten.
 
 Heute, Woche und Aufgaben unterstützen Schule, Betreuung, Bringen/Abholen,
 allgemeine Termine und Bettgehzeit. Ganztägige Termine haben keine Uhrzeit.
@@ -136,18 +139,33 @@ NULL-Berechtigungsprüfung, Serien/Ausnahmen und Datenvalidierung im SQL-Tool.
 Die gesamte Prüfung läuft in einer Transaktion mit künstlichen Fixtures und
 ROLLBACK. Keine echten Konten müssen hierfür angemeldet werden.
 
-## Noch offene Plattformprüfung
+`tests/invite-security.sql` prüft zusätzlich serverexklusive Link-RPCs,
+Rollenwechsel, Familiengrenzen, Rate Limits und Wiederverwendung. Der reale
+Auth-Test `tests/auth-e2e.mjs` verwendet isolierte temporäre Konten und den
+vorhandenen Endpunkt; keine zusätzlichen privilegierten Test-Endpunkte und kein
+SMTP. Fixture-Dateien mit Testpasswörtern niemals einchecken. Nach dem Test nur
+die eigens erzeugten Familien, Link-Anfragen und Konten gezielt entfernen.
+
+Am 02.10.2026 bestanden: 26 Unit-Tests, SQL-Berechtigungsprüfungen vor/nach
+simulierter Aktivierung und 13 reale Auth-Prüfungen (Registrierung gesperrt,
+Einladung, Passwortstärke, Familienbeitritt, Einmalverwendung, Anmeldung,
+Member-Ablehnung und Recovery einschließlich Ablehnung des alten Passworts).
+
+## Plattformprüfung und verbleibende Grenzen
 
 Der Supabase-Sicherheitsberater meldet nach der Bereinigung weiterhin deaktivierten
-Schutz vor kompromittierten Passwörtern. Dieser Dashboard-Schalter ist über die
-vorhandene Verbindung nicht schreibbar; Tarifverfügbarkeit prüfen.
+Schutz vor kompromittierten Passwörtern. Er ist nur ab Pro verfügbar und bleibt
+wegen des gewünschten Free-Tarifs offen. Mindestlänge und Zeichenregeln bieten
+keinen gleichwertigen Schutz gegen bereits kompromittierte Passwörter.
 
-Auth Site URL und erlaubte Redirect URLs müssen auf die genaue Pages-Adresse
-passen (inklusive /Famkal/; Passwort-Recovery nutzt ?recovery=1). Rate-Limits,
-Passwort-Mindestlänge und CAPTCHA müssen im Dashboard überprüft werden. Die
-Oberfläche verlangt für neue/ersetzte Passwörter zwölf Zeichen; das ersetzt nicht
-die serverseitige Einstellung. Bestehende kürzere Passwörter werden beim Login
-nicht ausgesperrt.
+Dashboard am 02.10.2026 geprüft: öffentliche/anonyme Registrierung aus,
+E-Mail-Bestätigung und sichere E-Mail-/Passwortänderung aktiv, Mindestlänge 12,
+Buchstaben und Ziffern erforderlich, OTP-Gültigkeit 3600 Sekunden. Site URL und
+einzige Redirect URL: `https://vbcoco.github.io/Famkal/`. Einladung und Recovery
+nutzen eigene URL-Fragmente. Die Serverprüfung der Passwortlänge ist durch den
+realen Auth-Test bestätigt. Bestehende kürzere Passwörter werden beim Login nicht
+ausgesperrt. Projektinterne Link-Limits: höchstens ein Link je Familie/Minute und
+zehn je Stunde; plattformweite Auth-Limits bleiben zusätzliche Grenzen.
 
 HTTPS ist aktiv. CSP wird als Meta-Tag gesetzt. GitHub Pages erlaubt keine freien
 Security-Response-Header; frame-ancestors kann daher hier nicht per Meta-Tag
