@@ -1,5 +1,7 @@
 -- Transaction-only fixtures: no real accounts or invitations are changed.
 begin;
+-- The suite controls its gate inside this transaction, including after release.
+update private.family_access_config set enabled=false;
 create function pg_temp.access_denied(command text) returns void language plpgsql as $$
 begin
  begin execute command; exception when insufficient_privilege or raise_exception then return; end;
