@@ -110,9 +110,24 @@ test('zero-row update is not reported as saved',async()=>{
     f.w.testApp.openEvent({id:'e1',created_by:'u1',event_date:'2026-10-01',title:'Test',event_type:'appointment',all_day:true,reminders:[]});
     f.w.document.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));
     await new Promise(resolve=>setTimeout(resolve,20));
-    assert.match(f.w.document.querySelector('#toast').textContent,/Nicht gespeichert/);
+    assert.match(f.w.document.querySelector('#eventDialog [role=alert]').textContent,/Nicht gespeichert/);
     assert.equal(f.w.document.querySelector('#eventDialog').open,true);
   }finally{f.close();}
+});
+test('overnight validation error is visible inside the modal and preserves inputs',async()=>{
+ const f=fixture();try{
+  f.w.testApp.openEvent();f.w.document.querySelector('#eventTitle').value='Bettgehzeit';
+  f.w.document.querySelector('#startTime').value='20:00';f.w.document.querySelector('#endTime').value='06:00';
+  f.w.document.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));
+  await new Promise(r=>setTimeout(r,10));
+  assert.match(f.w.document.querySelector('#eventDialog [role=alert]').textContent,/Ende/);
+  assert.equal(f.w.document.querySelector('#eventDialog').open,true);
+  assert.equal(f.w.document.querySelector('#eventTitle').value,'Bettgehzeit');
+  assert.equal(f.w.document.querySelector('#startTime').value,'20:00');
+  assert.equal(f.w.document.querySelector('#endTime').value,'06:00');
+  assert.ok(!f.calls.some(c=>c.table==='events'));
+  f.w.testApp.openEvent();assert.equal(f.w.document.querySelector('#eventDialog [role=alert]'),null);
+ }finally{f.close();}
 });
 test('week navigation triggers a new backend read',async()=>{
   const f=fixture();try {

@@ -13,6 +13,13 @@ let refreshNumber=0, authNumber=0, pendingScope=null, recovery=false, initialize
 const admin = () => ['owner','admin'].includes(member?.role);
 const toast = message => {
   clearTimeout(toastTimer);
+  const dialog=$$('dialog[open]').at(-1);
+  if(dialog) {
+    let notice=dialog.querySelector('.dialog-notice');
+    if(!notice){notice=document.createElement('p');notice.className='dialog-notice';notice.setAttribute('role','alert');dialog.prepend(notice);}
+    notice.textContent=message;
+    return;
+  }
   $('#toast').textContent=message; $('#toast').classList.add('show');
   toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),5000);
 };
@@ -161,6 +168,7 @@ function toggleAllDay() {
 function canEdit(event) { return admin()||[event.created_by,event.assignee_id,event.transport_to_id,event.transport_from_id].includes(user.id); }
 function openEvent(event=null) {
   if(!member) return;
+  $('#eventDialog .dialog-notice')?.remove();
   $('#eventForm').reset(); $('#reminders').replaceChildren();
   $('#eventId').value=event?.id||''; $('#seriesId').value=event?.series_id||'';
   $('#eventHeading').textContent=event?'Termin bearbeiten':'Termin anlegen';
@@ -206,6 +214,7 @@ async function done() {
 }
 async function saveEvent(event) {
   event.preventDefault();
+  $('#eventDialog .dialog-notice')?.remove();
   await busy($('#saveEvent'),async()=>{
     const data=payload(),id=$('#eventId').value,seriesId=$('#seriesId').value;
     validateEvent(data);
