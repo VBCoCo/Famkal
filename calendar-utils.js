@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.5.0';
 export function localDate(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
@@ -17,19 +17,42 @@ export function queryBounds(offset = 0, now = new Date()) {
 export function escapeHtml(value) { return String(value??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 export function safeColor(value) { return /^#[0-9a-f]{6}$/i.test(value??'') ? value : '#888888'; }
 export function eventTime(event) { return event.all_day ? 'Ganztägig' : event.start_time?.slice(0,5)||'Ohne Uhrzeit'; }
-export function assignedTo(event, userId) { return !!userId && [event.assignee_id,event.transport_to_id,event.transport_from_id].includes(userId); }
+export function assignmentIds(event,role) {
+  if(Array.isArray(event.assignments))return [...new Set(event.assignments.filter(a=>a.role===role).map(a=>a.person_id||a.member_user_id||a.test_member_id).filter(Boolean))];
+  return [event[{assignee:'assignee_id',to:'transport_to_id',from:'transport_from_id'}[role]]].filter(Boolean);
+}
+export function assignedTo(event, userId) { return !!userId && (event.assignee_all || ['assignee','to','from'].some(role=>assignmentIds(event,role).includes(userId))); }
 export function eventRoles(event, userId) {
-  return [['transport_to_id','Bringen'],['transport_from_id','Abholen'],['assignee_id','Zuständig']]
-    .filter(([key])=>event[key] && (!userId || event[key]===userId)).map(([,label])=>label);
+  return [['to','Bringen'],['from','Abholen'],['assignee','Zuständig']]
+    .filter(([role])=>(role==='assignee'&&event.assignee_all)||assignmentIds(event,role).some(id=>!userId||id===userId)).map(([,label])=>label);
 }
 export function openAssignment(event) {
-  if(event.event_type==='transport' && !event.transport_to_id && !event.transport_from_id) return 'Fahrt ungeklärt';
-  if(['care','bedtime'].includes(event.event_type) && !event.assignee_id) return 'Zuständigkeit offen';
+  if(event.event_type==='transport' && !assignmentIds(event,'to').length && !assignmentIds(event,'from').length) return 'Fahrt ungeklärt';
+  if(['care','bedtime'].includes(event.event_type) && !event.assignee_all && !assignmentIds(event,'assignee').length) return 'Zuständigkeit offen';
   return eventRoles(event).length ? '' : 'Zuständigkeit offen';
 }
 export function isTask(event) { return eventRoles(event).length>0 || ['transport','care','bedtime'].includes(event.event_type); }
 export function filterEvents(events, filter, userId) {
-  return events.filter(event=>filter==='mine' ? assignedTo(event,userId) : filter==='open' ? !!openAssignment(event) : true);
+  return events.filter(event=>filter==='cancelled' ? !!event.is_cancelled : !event.is_cancelled && (filter==='mine' ? assignedTo(event,userId) : filter==='open' ? !!openAssignment(event) : true));
+}
+export const eventEndDate=event=>event.end_date||event.event_date;
+export function eventOnDay(event,day) {return event.event_date<=day&&eventEndDate(event)>=day&&!(day===eventEndDate(event)&&day>event.event_date&&!event.all_day&&event.end_time?.startsWith('00:00'));}
+export function eventSpan(event) {
+  const end=eventEndDate(event);
+  return [new Date(event.event_date+'T'+(event.all_day?'00:00:00':event.start_time||'00:00:00')),event.all_day||!event.end_time?dateAtMidnight(localDate(addDays(dateAtNoon(end),1))):new Date(end+'T'+event.end_time)];
+}
+function dateAtMidnight(value){return new Date(value+'T00:00:00');}
+export function eventsOverlap(a,b){const [as,ae]=eventSpan(a),[bs,be]=eventSpan(b);return as<be&&bs<ae;}
+export function cardTime(event,day=event.event_date) {
+  if(event.all_day)return 'Ganztägig';
+  if(day>event.event_date)return day===eventEndDate(event)&&event.end_time?'Bis '+event.end_time.slice(0,5):'Läuft weiter';
+  return eventTime(event)+(eventEndDate(event)>event.event_date?' → '+dateAtNoon(eventEndDate(event)).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+(event.end_time?' '+event.end_time.slice(0,5):''):'');
+}
+export function assignmentColors(event,people,userId) {
+  const ids=event.assignee_all?people.map(p=>p.user_id):[...assignmentIds(event,'assignee'),...assignmentIds(event,'to'),...assignmentIds(event,'from')];
+  const colors=[...new Set(ids.map(id=>safeColor(people.find(p=>p.user_id===id)?.color)))];
+  if(!colors.length)return '#888888';
+  return colors.length===1?colors[0]:'linear-gradient(135deg,'+colors.join(',')+')';
 }
 export function nextEvent(events, now = new Date()) {
   const today=localDate(now);

@@ -1,0 +1,2 @@
+-- All-day records ignore any historical residual time.
+create or replace function private.calendar_span(p public.events) returns tsrange language sql immutable set search_path='' as $$ select tsrange(p.event_date+case when p.all_day then '00:00'::time else coalesce(p.start_time,'00:00'::time) end,case when p.all_day or p.end_time is null then (coalesce(p.end_date,p.event_date)+1)::timestamp else coalesce(p.end_date,p.event_date)+p.end_time end,'[)') $$;

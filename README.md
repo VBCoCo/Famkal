@@ -1,4 +1,57 @@
-# Leonhards Familienkalender — Famkal 1.4.0
+# Leonhards Familienkalender — Famkal 1.5.0
+
+## Zuständigkeiten, Zeiträume und Urlaub (1.5.0)
+
+Zuständig erlaubt mehrere Familienmitglieder oder Alle. Alle gilt dynamisch für
+die aktuell aktiven echten und Testmitglieder. Bringt/Holt bleiben je eine
+Auswahl. Mehrere Personen werden mit einem Verlauf ihrer Farben dargestellt.
+Heute, Woche und Aufgaben teilen überall Alle, Meine, Ungeklärt, Abgesagt.
+Absagen sind wiederherstellbar und bleiben normalerweise ausgeblendet.
+
+Das pinke Testmitglied Test besitzt weder Auth-Konto noch Login, Mail oder
+Berechtigungen. Es dient nur Farben/Zuordnungen. Verwaltung unter Admin;
+Entfernen löst nur seine Zuordnungen und archiviert es, alle Termine und andere
+Zuständige bleiben erhalten. Die bisherigen Login-Mitglieder bleiben unverändert.
+
+Termine haben getrennte Start-/Enddaten. Ganztägige Enddaten sind einschließlich
+des letzten Tages. Zeitgebundene Intervalle enden zur angegebenen Uhrzeit;
+Ende 00:00 liegt an der Grenze zum Folgetag. Bettgehzeit schlägt 20:00 bis zum
+folgenden Morgen um 06:00 vor. Jeder betroffene Tag zeigt den Termin, auch wenn
+sein Beginn vor dem geladenen Zeitraum liegt. Neue Serien erlauben frei
+ausgewählte Wochentage: z.B. So–Do und separat Fr/Sa. Serienende begrenzt den
+Beginn des letzten Vorkommens, nicht dessen Ende am nächsten Morgen.
+Die Regel bestehender Serien bleibt gesonderter offener Punkt 5.
+
+Urlaub (Owner/Admin): Zeitraum eintragen, Nächster Schritt, überlappende aktive
+Termine prüfen. Standardmäßig ist nichts ausgewählt. Gruppen nach Serie,
+Auswahl einzelner oder aller angebotenen Vorkommen, dann Zusammenfassung und
+explizites Speichern mit Absagen. Urlaub plus Auswahl werden atomar gespeichert.
+Zeitlich fremde, schon abgesagte oder seit der Vorschau geänderte Ereignisse
+werden serverseitig abgewiesen; nichts davon wird dann gespeichert.
+Keine harte Löschung. Urlaubsabsagen rückgängig stellt nur Absagen dieses
+Urlaubs wieder her. Eine manuell erneut bestätigte Absage löst ihren Urlaubsbezug
+und bleibt beim Rückgängigmachen bestehen. Die Änderung eines bestehenden
+Urlaubszeitraums verschiebt dessen früher bestätigte Absagen nicht automatisch.
+Fehler erscheinen direkt im geöffneten Dialog, Eingaben bleiben erhalten.
+
+Datenmodell: additive test_members/event_assignments, Enddatum/Alle/Urlaubsbezug
+auf events, Wochentage auf event_series. Legacy-Zuordnungen bleiben erhalten und
+werden über Trigger gespiegelt. Neue Tabellen sind familienbezogen per RLS
+lesbar, Browser-Schreibzugriff ausschließlich über geprüfte RPCs. Eigene
+Familie und aktive Personen werden serverseitig geprüft; ganze Serien und
+Urlaubsaktionen bleiben Admin/Owner. Neue Felder haben keine direkten Schreib-
+Grants für den Browser. Private SECURITY DEFINER-Implementierungen und öffentliche
+SECURITY INVOKER-Wrapper, keine Auth- oder Registrierungsänderung.
+
+Freigabe der größeren Datenbankerweiterung durch Robert am 02.10.2026.
+48 Anwendungstests, zurückgerollte SQL-Funktions-/Berechtigungstests und zehn
+reale API-Prüfungen erfolgreich. Die temporäre API-Testfamilie/-Identität wurde
+vollständig entfernt. 90 Bestandsereignisse mit identischem Fingerprint und
+95 unveränderte Legacy-Zuordnungen; ein echtes Konto plus Test ohne Anmeldung.
+Supabase-Security-Advisors: keine neuen Warnungen, bekannter Passwortschutz ab
+Pro bleibt offen; fehlende Policies auf zwei privaten, nicht browserbeschreibbaren
+Access-Tabellen bedeuten dort absichtlichen Standard-Deny. Neue FK-Indizes
+ergänzt. Angemeldete iPhone-Ansichten anschließend praktisch prüfen.
 
 ## Kalender und Aufgaben auf dem iPhone (1.4.0)
 

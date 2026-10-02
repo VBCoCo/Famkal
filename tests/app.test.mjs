@@ -7,18 +7,18 @@ const app=readFileSync(new URL('../app.js',import.meta.url),'utf8').replace(/^im
 import * as utils from '../calendar-utils.js';
 import {mountProjectList} from '../project-list.js';
 import * as links from '../access-links.js';
-function fixture({rows=[]}={}) {
+function fixture({rows=[],rpcResult=null,rpcError=null}={}) {
   const dom=new JSDOM(html,{url:'https://vbcoco.github.io/Famkal/',runScripts:'outside-only'});
   const w=dom.window,calls=[];
   w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
   w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');this.dispatchEvent(new w.Event('close'));};
   const sb={auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>{},signOut:async()=>({data:{}}),verifyOtp:async()=>({data:{session:{},user:{id:'u1'}}}),setSession:async data=>{calls.push({action:'reset-session'});return {data:{session:{},user:{id:'u1'}}};},resetPasswordForEmail:async(email,options)=>{calls.push({action:'recovery-mail',email,options});return {data:{}};},updateUser:async data=>{calls.push({action:'password',length:data.password.length});return {data:{}};}},from(table){
-    const q={action:'read',filters:[],select(){return this;},eq(...args){this.filters.push(args);return this;},gte(){return this;},lte(){return this;},order(){return this;},range(){return this;},update(){this.action='update';return this;},insert(){this.action='insert';return this;},delete(){this.action='delete';return this;},maybeSingle(){return this;},single(){return this;},then(resolve){calls.push({table,action:this.action});return Promise.resolve({data:table==='family_members'&&this.action==='read'?[member]:rows,error:null}).then(resolve);}};
+    const q={action:'read',filters:[],select(){return this;},eq(...args){this.filters.push(args);return this;},gte(){return this;},lte(){return this;},or(){return this;},order(){return this;},range(){return this;},update(){this.action='update';return this;},insert(){this.action='insert';return this;},delete(){this.action='delete';return this;},maybeSingle(){return this;},single(){return this;},then(resolve){calls.push({table,action:this.action});return Promise.resolve({data:table==='family_members'&&this.action==='read'?[member]:rows,error:null}).then(resolve);}};
     return q;
-  },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:null,error:null};}};
+  },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:rpcResult,error:rpcError};}};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
   Object.assign(w,{...utils,...links,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
-  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
+  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
@@ -29,6 +29,50 @@ test('event editor preserves zero-minute default and all-day clears payload time
     f.w.document.querySelector('#startTime').value='14:00';f.w.document.querySelector('#allDay').value='true';
     assert.equal(f.w.testApp.payload().start_time,null);
   }finally{f.close();}
+});
+test('overnight custom series sends end date, weekday selection and multiple assignments',async()=>{
+ const f=fixture({rpcResult:'saved'});try{
+  f.w.testApp.setPeople([{user_id:'u1',display_name:'Robert',color:'#0066ff'},{user_id:'u2',display_name:'Anna',color:'#ff0000'}]);f.w.testApp.openEvent();
+  const d=f.w.document;d.querySelector('#eventTitle').value='Schlafen';d.querySelector('#eventDate').value='2026-10-04';d.querySelector('#eventEndDate').value='2026-10-05';d.querySelector('#startTime').value='20:00';d.querySelector('#endTime').value='06:00';d.querySelector('#recurrence').value='custom';d.querySelector('#recurrenceEnd').value='2026-10-08';
+  d.querySelectorAll('#assigneePeople input').forEach(x=>x.checked=true);d.querySelectorAll('#weekdayChoices input').forEach(x=>x.checked=['7','1','2','3','4'].includes(x.value));
+  d.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,20));
+  const call=f.calls.find(x=>x.name==='save_calendar_event');assert.ok(call);assert.equal(call.args.p_event.end_date,'2026-10-05');assert.equal(call.args.p_event.assignments.length,2);assert.equal(call.args.p_weekdays.length,5);assert.ok(call.args.p_weekdays.includes(7));
+ }finally{f.close();}
+});
+test('All clears individuals, fake people can be selected and stale edit timestamp is preserved',()=>{
+ const f=fixture();try{
+  f.w.testApp.setTestPeople([{id:'pink',user_id:'pink',display_name:'Test',color:'#ff69b4',is_test:true}]);
+  f.w.testApp.openEvent(makeEvent('edit',{updated_at:'2026-10-02T10:00:00Z',assignments:[{role:'assignee',test_member_id:'pink'}]}));
+  const d=f.w.document;assert.equal(d.querySelector('#assigneePeople input[value=pink]').checked,true);
+  assert.equal(f.w.testApp.payload().expected_updated_at,'2026-10-02T10:00:00Z');
+  d.querySelector('#assigneeAll').click();const data=f.w.testApp.payload();assert.equal(data.assignee_all,true);assert.equal(data.assignments.length,0);assert.equal(d.querySelector('#assigneePeople input[value=pink]').disabled,true);
+ }finally{f.close();}
+});
+test('cancelled filter persists in every view and includes plain appointments in tasks',()=>{
+ const f=fixture();try{
+  f.w.testApp.setEvents([makeEvent('active',{assignee_all:true}),makeEvent('cancelled',{is_cancelled:true})]);
+  assert.equal(f.w.document.querySelectorAll('#upcomingList .event-card').length,1);
+  f.w.document.querySelector('[data-filter=cancelled]').click();
+  for(const view of ['today','week','tasks']){f.w.testApp.navigate(view);assert.equal(f.w.document.querySelector('[data-filter=cancelled]').getAttribute('aria-pressed'),'true');}
+  assert.equal(f.w.document.querySelectorAll('#tasksList .event-card').length,1);assert.ok(f.w.document.querySelector('#tasksList .cancelled'));assert.match(f.w.document.querySelector('#tasksList').textContent,/Wiederherstellen/);
+ }finally{f.close();}
+});
+test('holiday preview starts unselected, groups occurrences and only saves reviewed IDs',async()=>{
+ const rows=[makeEvent('a',{event_date:'2026-10-04',series_id:'s',updated_at:'2026-10-02'}),makeEvent('b',{event_date:'2026-10-05',series_id:'s',updated_at:'2026-10-02'}),makeEvent('outside',{event_date:'2026-10-10'}),makeEvent('cancelled',{event_date:'2026-10-05',is_cancelled:true})];
+ const f=fixture({rows,rpcResult:'holiday'});try{
+  await f.w.testApp.vacationPreview({family_id:'f1',event_type:'vacation',title:'Urlaub',event_date:'2026-10-04',end_date:'2026-10-06',all_day:true});
+  const d=f.w.document;assert.equal(d.querySelectorAll('[data-vacation-id]').length,2);assert.equal(d.querySelectorAll('[data-vacation-id]:checked').length,0);assert.ok(!f.calls.some(x=>x.name==='save_calendar_event'));
+  d.querySelector('[data-vacation-group]').click();d.querySelector('#vacationNext').click();assert.match(d.querySelector('#vacationSave').textContent,/2 Termine absagen/);
+  d.querySelector('#vacationSave').click();await new Promise(r=>setTimeout(r,20));const call=f.calls.find(x=>x.name==='save_calendar_event');assert.equal(call.args.p_cancel.length,2);assert.ok(call.args.p_cancel.every(x=>['a','b'].includes(x.id)&&x.updated_at));
+ }finally{f.close();}
+});
+test('holiday failure remains in foreground, cancel or preview alone never writes',async()=>{
+ const f=fixture({rpcError:{message:'Auswahl veraltet'}});try{
+  const data={family_id:'f1',event_type:'vacation',title:'Urlaub',event_date:'2026-10-04',end_date:'2026-10-06',all_day:true};
+  await f.w.testApp.vacationPreview(data);f.w.document.querySelector('[data-close=vacationDialog]').click();assert.ok(!f.calls.some(x=>x.name==='save_calendar_event'));
+  await f.w.testApp.vacationPreview(data);f.w.document.querySelector('#vacationNext').click();f.w.document.querySelector('#vacationSave').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(f.w.document.querySelector('#vacationDialog').open,true);assert.match(f.w.document.querySelector('#vacationDialog [role=alert]').textContent,/veraltet/);
+ }finally{f.close();}
 });
 test('invited user sets a password before joining and no public signup control exists',async()=>{
  const f=fixture();try{
@@ -110,9 +154,24 @@ test('zero-row update is not reported as saved',async()=>{
     f.w.testApp.openEvent({id:'e1',created_by:'u1',event_date:'2026-10-01',title:'Test',event_type:'appointment',all_day:true,reminders:[]});
     f.w.document.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));
     await new Promise(resolve=>setTimeout(resolve,20));
-    assert.match(f.w.document.querySelector('#toast').textContent,/Nicht gespeichert/);
+    assert.match(f.w.document.querySelector('#eventDialog [role=alert]').textContent,/Nicht gespeichert/);
     assert.equal(f.w.document.querySelector('#eventDialog').open,true);
   }finally{f.close();}
+});
+test('overnight validation error is visible inside the modal and preserves inputs',async()=>{
+ const f=fixture();try{
+  f.w.testApp.openEvent();f.w.document.querySelector('#eventTitle').value='Bettgehzeit';
+  f.w.document.querySelector('#startTime').value='20:00';f.w.document.querySelector('#endTime').value='06:00';
+  f.w.document.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));
+  await new Promise(r=>setTimeout(r,10));
+  assert.match(f.w.document.querySelector('#eventDialog [role=alert]').textContent,/Ende/);
+  assert.equal(f.w.document.querySelector('#eventDialog').open,true);
+  assert.equal(f.w.document.querySelector('#eventTitle').value,'Bettgehzeit');
+  assert.equal(f.w.document.querySelector('#startTime').value,'20:00');
+  assert.equal(f.w.document.querySelector('#endTime').value,'06:00');
+  assert.ok(!f.calls.some(c=>c.table==='events'));
+  f.w.testApp.openEvent();assert.equal(f.w.document.querySelector('#eventDialog [role=alert]'),null);
+ }finally{f.close();}
 });
 test('week navigation triggers a new backend read',async()=>{
   const f=fixture();try {
@@ -166,8 +225,8 @@ test('unresolved task filter covers missing care assignee and keeps calendar sel
   f.w.testApp.navigate('tasks');f.w.document.querySelector('[data-filter=open]').click();
   assert.equal(f.w.document.querySelectorAll('#tasksList .event-card').length,2);
   assert.match(f.w.document.querySelector('#tasksList').textContent,/Zuständigkeit offen/);
-  f.w.testApp.navigate('today');assert.equal(f.w.document.querySelector('[data-filter=all]').getAttribute('aria-pressed'),'true');
-  assert.equal(f.w.document.querySelector('#openFilter').classList.contains('hidden'),true);
+  f.w.testApp.navigate('today');assert.equal(f.w.document.querySelector('[data-filter=open]').getAttribute('aria-pressed'),'true');
+  assert.equal(f.w.document.querySelector('#openFilter').classList.contains('hidden'),false);
  }finally{f.close();}
 });
 test('compact cards expand separately from editing, own color and no redundant own name',()=>{
@@ -176,7 +235,7 @@ test('compact cards expand separately from editing, own color and no redundant o
   f.w.testApp.setEvents([makeEvent('appointment',{assignee_id:'u2',transport_to_id:'u1',location:'Praxis',notes:'Notiz'})]);
   f.w.document.querySelector('[data-filter=mine]').click();
   const card=f.w.document.querySelector('#upcomingList .event-card');
-  assert.equal(card.style.getPropertyValue('--person'),'#0066ff');assert.ok(!card.textContent.includes('Robert'));
+  assert.match(card.style.getPropertyValue('--assignment'),/#0066ff/);assert.match(card.style.getPropertyValue('--assignment'),/#ff0000/);assert.ok(!card.textContent.includes('Robert'));
   assert.ok(card.textContent.includes('Anna'));assert.ok(!card.querySelector('summary').textContent.includes('Praxis'));
   assert.equal(card.querySelector('details').open,false);card.querySelector('details').open=true;
   assert.equal(f.w.document.querySelector('#eventDialog').open,false);

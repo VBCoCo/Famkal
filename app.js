@@ -1,18 +1,26 @@
 import { createClient } from './vendor/supabase.js';
 import { mountProjectList } from './project-list.js';
 import { parseAccessLink, redeemAccessLink, requestAccessLink, requestRecoveryEmail } from './access-links.js';
-import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent, assignedTo, eventRoles, openAssignment, isTask, filterEvents } from './calendar-utils.js';
+import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent, assignedTo, eventRoles, openAssignment, isTask, filterEvents, assignmentIds, eventEndDate, eventOnDay, eventsOverlap, cardTime, assignmentColors } from './calendar-utils.js';
 
 const cfg = window.APP_CONFIG || {};
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
-let sb, user=null, member=null, members=[], events=[], series=[], weekOffset=0, calendarFilter='all', taskFilter='all', taskLimit=50, upcomingLimit=5;
+let sb, user=null, member=null, members=[], testMembers=[], events=[], series=[], weekOffset=0, calendarFilter='all', taskFilter='all', taskLimit=50, upcomingLimit=5, pendingVacation=null, editingStamp=null;
 const expandedEvents=new Set();
 let accessLink=null, pendingFamilyCode=null;
 let refreshNumber=0, authNumber=0, pendingScope=null, recovery=false, initialized=false, currentView='today', toastTimer;
 const admin = () => ['owner','admin'].includes(member?.role);
 const toast = message => {
   clearTimeout(toastTimer);
+  const dialog=$$('dialog[open]').at(-1);
+  if(dialog) {
+    $('#toast').classList.remove('show');
+    let notice=dialog.querySelector('.dialog-notice');
+    if(!notice){notice=document.createElement('p');notice.className='dialog-notice';notice.setAttribute('role','alert');dialog.prepend(notice);}
+    notice.textContent=message;
+    return;
+  }
   $('#toast').textContent=message; $('#toast').classList.add('show');
   toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),5000);
 };
@@ -20,7 +28,7 @@ const errorText = error => !navigator.onLine ? 'Offline: Zum Laden und Speichern
   (error?.message || 'Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.');
 function show(id) { ['auth','onboarding','app'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id)); }
 function clearSession() {
-  authNumber++; refreshNumber++; user=null; member=null; members=[]; events=[]; series=[];
+  authNumber++; refreshNumber++; user=null; member=null; members=[]; testMembers=[]; events=[]; series=[]; pendingVacation=null;editingStamp=null;
   weekOffset=0; currentView='today'; pendingScope=null; calendarFilter='all'; taskFilter='all'; taskLimit=50; upcomingLimit=5; expandedEvents.clear();
   $$('dialog[open]').forEach(d=>d.close());
   $('#settingsContent').replaceChildren(); $('#inviteLinkBox').classList.add('hidden');
@@ -51,7 +59,6 @@ function navigate(view) {
 function syncFilters() {
   const visible=['today','week','tasks'].includes(currentView), filter=currentView==='tasks'?taskFilter:calendarFilter;
   $('#calendarFilters').classList.toggle('hidden',!visible);
-  $('#openFilter').classList.toggle('hidden',currentView!=='tasks');
   $$('[data-filter]').forEach(button=>{const selected=button.dataset.filter===filter;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));});
 }
 async function loadMembership() {
@@ -65,8 +72,8 @@ async function loadMembership() {
 async function fetchEvents(start,end,family) {
   const all=[], pageSize=500;
   for(let offset=0;;offset+=pageSize) {
-    const page=check(await sb.from('events').select('*').eq('family_id',family).gte('event_date',start).lte('event_date',end)
-      .eq('is_cancelled',false).order('event_date').order('start_time',{nullsFirst:true}).order('id').range(offset,offset+pageSize-1));
+    const page=check(await sb.from('events').select('*,assignments:event_assignments(role,member_user_id,test_member_id)').eq('family_id',family).lte('event_date',end)
+      .or('end_date.gte.'+start+',and(end_date.is.null,event_date.gte.'+start+')').order('event_date').order('start_time',{nullsFirst:true}).order('id').range(offset,offset+pageSize-1));
     all.push(...page);
     if(page.length<pageSize) return all;
   }
@@ -75,13 +82,13 @@ async function refreshAll() {
   if(!member||!user) return;
   const request=++refreshNumber, family=member.family_id, userId=user.id, offset=weekOffset;
   const [start,end]=queryBounds(offset);
-  const [people,items,recurrences]=await Promise.all([
+  const [people,items,recurrences,tests]=await Promise.all([
     sb.from('family_members').select('*').eq('family_id',family).order('display_name'),
-    fetchEvents(start,end,family), sb.from('event_series').select('*').eq('family_id',family)
+    fetchEvents(start,end,family), sb.from('event_series').select('*').eq('family_id',family),sb.from('test_members').select('*').eq('family_id',family).eq('is_active',true).order('display_name')
   ]);
   const loadedPeople=check(people), loadedSeries=check(recurrences);
   if(request!==refreshNumber||family!==member?.family_id||userId!==user?.id) return;
-  members=loadedPeople; events=items; series=loadedSeries;
+  members=loadedPeople; events=items; series=loadedSeries;testMembers=check(tests).map(m=>({...m,user_id:m.id,is_test:true}));
   member=members.find(m=>m.user_id===userId);
   if(!member) return loadMembership();
   $('#avatar').textContent=(member.display_name||'?')[0].toUpperCase();
@@ -89,38 +96,42 @@ async function refreshAll() {
   navigate(currentView); renderToday(); renderWeek(); renderTasks(); fillPeople();
   if(admin()) renderAdmin(); else $('#adminContent').replaceChildren();
 }
-const person=id=>members.find(m=>m.user_id===id);
-const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️'}[type]||'📅');
-function card(event, {mine=false, task=false}={}) {
-  const p=(assignedTo(event,user?.id)?person(user.id):null)||person(event.assignee_id)||person(event.transport_from_id)||person(event.transport_to_id), chips=[];
-  if(event.transport_to_id&&(!mine||event.transport_to_id!==user?.id)) chips.push('Bringt: '+esc(person(event.transport_to_id)?.display_name||'Unbekannt'));
-  if(event.transport_from_id&&(!mine||event.transport_from_id!==user?.id)) chips.push('Holt: '+esc(person(event.transport_from_id)?.display_name||'Unbekannt'));
-  if(event.assignee_id&&(!mine||event.assignee_id!==user?.id)) chips.push('Zuständig: '+esc(person(event.assignee_id)?.display_name||'Unbekannt'));
+const allPeople=()=>[...members,...testMembers];
+const person=id=>allPeople().find(m=>m.user_id===id);
+const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️',vacation:'🏖️'}[type]||'📅');
+function card(event, {mine=false, task=false, day=event.event_date}={}) {
+  const chips=[];
+  for(const [role,label] of [['to','Bringt'],['from','Holt'],['assignee','Zuständig']]) for(const id of assignmentIds(event,role))if(!mine||id!==user?.id)chips.push(label+': '+esc(person(id)?.display_name||'Unbekannt'));
+  if(event.assignee_all)chips.push('Zuständig: Alle Familienmitglieder');
   const open=openAssignment(event), roles=eventRoles(event,mine?user?.id:undefined);
-  return '<article class="event-card" data-id="'+esc(event.id)+'" style="--person:'+safeColor(p?.color)+'"><details'+(expandedEvents.has(event.id)?' open':'')+'><summary><span class="event-heading"><small>'+
-    typeIcon(event.event_type)+' '+eventTime(event)+'</small><strong>'+esc(event.title)+'</strong>'+
+  return '<article class="event-card'+(event.is_cancelled?' cancelled':'')+'" data-id="'+esc(event.id)+'" style="--person:#888888;--assignment:'+assignmentColors(event,allPeople(),user?.id)+'"><details'+(expandedEvents.has(event.id)?' open':'')+'><summary><span class="event-heading"><small>'+
+    typeIcon(event.event_type)+' '+esc(cardTime(event,day))+'</small><strong>'+esc(event.title)+'</strong>'+
     ((task||mine)&&roles.length?'<span class="event-role">'+roles.map(esc).join(' · ')+'</span>':'')+
-    (open?'<span class="assignment-open">'+esc(open)+'</span>':'')+'</span><span class="expand-icon" aria-hidden="true">⌄</span><span class="visually-hidden">Details ein- oder ausklappen</span></summary><div class="event-details">'+
+    (event.is_cancelled?'<span class="assignment-open">Abgesagt'+(event.vacation_cancel_id?' · Urlaub':'')+'</span>':open?'<span class="assignment-open">'+esc(open)+'</span>':'')+'</span><span class="expand-icon" aria-hidden="true">⌄</span><span class="visually-hidden">Details ein- oder ausklappen</span></summary><div class="event-details">'+
+    '<p>'+esc(event.event_date)+(eventEndDate(event)!==event.event_date?' bis '+esc(eventEndDate(event)):'')+'</p>'+
     (event.location?'<p>Ort: '+esc(event.location)+'</p>':'')+
     (event.end_time&&!event.all_day?'<p>Ende: '+esc(event.end_time.slice(0,5))+'</p>':'')+
     '<div class="chips">'+chips.map(x=>'<span class="chip">'+x+'</span>').join('')+
     (event.reminders||[]).map(x=>'<span class="chip">🔔 '+Number(x)+' Min. (vorbereitet)</span>').join('')+'</div>'+
     (event.notes?'<p class="event-notes">'+esc(event.notes)+'</p>':'')+
     (event.series_id?'<p class="small">Wiederkehrender Termin</p>':'')+
-    '<button type="button" class="secondary" data-edit-event="'+esc(event.id)+'">'+(canEdit(event)?'Bearbeiten':'Termin ansehen')+'</button></div></details></article>';
+    (event.is_cancelled?((admin()||event.created_by===user?.id)?'<button type="button" class="secondary" data-restore-event="'+esc(event.id)+'">Wiederherstellen</button>':''):'<button type="button" class="secondary" data-edit-event="'+esc(event.id)+'">'+(canEdit(event)?'Bearbeiten':'Termin ansehen')+'</button>')+
+    (event.event_type==='vacation'&&admin()?'<button type="button" class="secondary" data-restore-vacation="'+esc(event.id)+'">Urlaubsabsagen rückgängig</button>':'')+'</div></details></article>';
 }
 function bindCards() {
   $$('.event-card details').forEach(element=>element.ontoggle=()=>{const id=element.closest('.event-card').dataset.id;if(element.open) expandedEvents.add(id); else expandedEvents.delete(id);});
   $$('[data-edit-event]').forEach(button=>button.onclick=()=>{const event=events.find(e=>e.id===button.dataset.editEvent);if(event)openEvent(event);});
+  $$('[data-restore-event],[data-restore-vacation]').forEach(button=>button.onclick=()=>busy(button,async()=>{if(!confirm('Ausgewählte Absage'+(button.dataset.restoreVacation?'n dieses Urlaubs':'')+' wirklich rückgängig machen?'))return;check(await sb.rpc('calendar_cancel',{p_id:button.dataset.restoreVacation||button.dataset.restoreEvent,p_cancel:false,p_scope:button.dataset.restoreVacation?'vacation':'single'}));await refreshAll();}));
 }
 function renderToday() {
-  const today=localDate(), filtered=filterEvents(events,calendarFilter,user?.id), list=filtered.filter(e=>e.event_date===today), next=nextEvent(list), mine=calendarFilter==='mine';
-  $('#todayList').innerHTML=list.length?list.map(e=>card(e,{mine})).join(''):'<div class="empty">'+(mine?'Heute sind keine Termine für dich eingetragen.':'Heute ist nichts eingetragen.')+'</div>';
+  const today=localDate(), filtered=filterEvents(events,calendarFilter,user?.id), list=filtered.filter(e=>eventOnDay(e,today)), next=nextEvent(list), mine=calendarFilter==='mine';
+  $('#todayList').innerHTML=list.length?list.map(e=>card(e,{mine,day:today})).join(''):'<div class="empty">'+(calendarFilter!=='all'?'Heute keine passenden Termine.':'Heute ist nichts eingetragen.')+'</div>';
   $('#nextTask').innerHTML=next?'<small>NÄCHSTER TERMIN</small><h2>'+esc(next.title)+'</h2><div>'+eventTime(next)+(eventRoles(next,mine?user?.id:undefined).length?' · '+eventRoles(next,mine?user?.id:undefined).map(esc).join(' · '):'')+'</div>':
     '<small>HEUTE</small><h2>Keine weiteren zeitgebundenen Termine</h2>';
   const upcoming=filtered.filter(e=>e.event_date>today&&e.event_date<=localDate(addDays(new Date(),120)));
   $('#upcomingList').innerHTML=upcoming.length?groupedCards(upcoming.slice(0,upcomingLimit),{mine}):'<div class="empty">Keine kommenden Termine'+(mine?' für dich':'')+'.</div>';
   $('#moreUpcoming').classList.toggle('hidden',upcoming.length<=upcomingLimit);
+  if(calendarFilter==='cancelled')$('#nextTask').innerHTML='<small>ABGESAGT</small><h2>Abgesagte Termine</h2>';
   bindCards();
 }
 function renderWeek() {
@@ -128,24 +139,24 @@ function renderWeek() {
   $('#weekRange').textContent=start.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+'–'+end.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
   let html='';
   for(let day=new Date(start);day<=end;day=addDays(day,1)) {
-    const list=filterEvents(events.filter(e=>e.event_date===localDate(day)),calendarFilter,user?.id);
+    const list=filterEvents(events.filter(e=>eventOnDay(e,localDate(day))),calendarFilter,user?.id);
     html+='<h3>'+day.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})+'</h3>'+
-      (list.length?list.map(e=>card(e,{mine:calendarFilter==='mine'})).join(''):'<div class="empty">Keine Termine'+(calendarFilter==='mine'?' für dich':'')+'</div>');
+      (list.length?list.map(e=>card(e,{mine:calendarFilter==='mine',day:localDate(day)})).join(''):'<div class="empty">Keine passenden Termine</div>');
   }
   $('#weekList').innerHTML=html; bindCards();
 }
 function renderTasks() {
   const today=localDate(), end=localDate(addDays(new Date(),120));
-  const list=filterEvents(events.filter(e=>e.event_date>=today&&e.event_date<=end&&isTask(e)),taskFilter,user?.id);
-  $('#tasksList').innerHTML=list.length?groupedCards(list.slice(0,taskLimit),{mine:taskFilter==='mine',task:true}):'<div class="empty">Keine passenden Aufgaben.</div>';
+  const list=filterEvents(events.filter(e=>eventEndDate(e)>=today&&e.event_date<=end&&(calendarFilter==='cancelled'||isTask(e)||calendarFilter==='open')),calendarFilter,user?.id);
+  $('#tasksList').innerHTML=list.length?groupedCards(list.slice(0,taskLimit),{mine:calendarFilter==='mine',task:true}):'<div class="empty">Keine passenden Aufgaben.</div>';
   $('#moreTasks').classList.toggle('hidden',list.length<=taskLimit); bindCards();
 }
 function groupedCards(list,options) {
-  let date='';return list.map(event=>{const heading=event.event_date!==date?'<h3>'+dateAtNoon(event.event_date).toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'})+'</h3>':'';date=event.event_date;return heading+card(event,options);}).join('');
+  let date='';return list.map(event=>{const day=event.event_date<localDate()?localDate():event.event_date;const heading=day!==date?'<h3>'+dateAtNoon(day).toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'})+'</h3>':'';date=day;return heading+card(event,{...options,day});}).join('');
 }
 function fillPeople() {
-  const opts='<option value="">— ungeklärt —</option>'+members.map(m=>'<option value="'+esc(m.user_id)+'">'+esc(m.display_name)+'</option>').join('');
-  if(!$('#eventDialog').open) ['assignee','transportTo','transportFrom'].forEach(id=>$('#'+id).innerHTML=opts);
+  const opts='<option value="">— ungeklärt —</option>'+allPeople().map(m=>'<option value="'+esc(m.user_id)+'">'+esc(m.display_name)+(m.is_test?' (Test)':'')+'</option>').join('');
+  if(!$('#eventDialog').open){['transportTo','transportFrom'].forEach(id=>$('#'+id).innerHTML=opts);$('#assigneePeople').innerHTML=allPeople().map(m=>'<label class="checkbox-label"><input type="checkbox" value="'+esc(m.user_id)+'">'+esc(m.display_name)+(m.is_test?' (Test)':'')+'</label>').join('');}
 }
 function addReminder(value=15) {
   if($$('#reminders input').length>=10) return toast('Maximal zehn Erinnerungen pro Termin');
@@ -158,10 +169,12 @@ function toggleAllDay() {
   const allDay=$('#allDay').value==='true';
   ['startTime','endTime'].forEach(id=>$('#'+id).disabled=allDay);
 }
-function canEdit(event) { return admin()||[event.created_by,event.assignee_id,event.transport_to_id,event.transport_from_id].includes(user.id); }
+function canEdit(event) { return admin()||event.created_by===user?.id||assignedTo(event,user?.id); }
 function openEvent(event=null) {
   if(!member) return;
+  $('#eventDialog .dialog-notice')?.remove();
   $('#eventForm').reset(); $('#reminders').replaceChildren();
+  editingStamp=event?.updated_at||null;fillPeople();
   $('#eventId').value=event?.id||''; $('#seriesId').value=event?.series_id||'';
   $('#eventHeading').textContent=event?'Termin bearbeiten':'Termin anlegen';
   const allowed=!event||canEdit(event);
@@ -169,30 +182,38 @@ function openEvent(event=null) {
   $('#deleteEvent').classList.toggle('hidden',!deletable);
   const values={eventDate:event?.event_date||localDate(),eventType:event?.event_type||'appointment',eventTitle:event?.title||'',
     startTime:event?.start_time?.slice(0,5)||'',endTime:event?.end_time?.slice(0,5)||'',allDay:String(event?.all_day||false),
-    location:event?.location||'',notes:event?.notes||'',assignee:event?.assignee_id||'',transportTo:event?.transport_to_id||'',transportFrom:event?.transport_from_id||''};
+    eventEndDate:event?eventEndDate(event):localDate(),location:event?.location||'',notes:event?.notes||'',assignee:event?.assignee_id||'',transportTo:assignmentIds(event||{},'to')[0]||'',transportFrom:assignmentIds(event||{},'from')[0]||''};
   Object.entries(values).forEach(([id,value])=>$('#'+id).value=value);
+  $('#assigneeAll').checked=!!event?.assignee_all;
+  $$('#assigneePeople input').forEach(input=>{input.checked=assignmentIds(event||{},'assignee').includes(input.value);input.disabled=!!event?.assignee_all;});
   (event?.reminders??[member.default_reminder_minutes??15]).forEach(addReminder);
   const recurrence=series.find(s=>s.id===event?.series_id);
   $('#recurrence').value=recurrence?.recurrence||'none';
   $('#recurrenceEnd').value=recurrence?.ends_on||'';
+  $$('#weekdayChoices input').forEach(input=>{input.checked=recurrence?.selected_weekdays?.includes(Number(input.value))||false;input.disabled=!!event;});
+  $('#weekdayChoices').classList.toggle('hidden',$('#recurrence').value!=='custom');
   $('#recurrence').disabled=Boolean(event); $('#recurrenceEnd').disabled=Boolean(event);
   $('#seriesInfo').textContent=event?.series_id?'Rhythmus und Serienende sind hier schreibgeschützt. Einzelne Termine, Datum, Zeiten und Zuständigkeiten können geändert werden.':
     event?'Ein bestehender Einzeltermin bleibt ein Einzeltermin. Für eine neue Serie bitte einen neuen Termin anlegen.':'Ohne Enddatum wird die Serie für ein Jahr angelegt (maximal zwei Jahre).';
-  $('#saveEvent').disabled=!allowed;
+  $('#saveEvent').disabled=!allowed||!!event?.is_cancelled;$('#saveEvent').textContent='Speichern';
+  if(event?.event_type==='vacation')$('#seriesInfo').textContent='Vorhandene Urlaubsabsagen bleiben bei einer Änderung des Zeitraums erhalten. Über die Terminkarte kannst du sie ausdrücklich rückgängig machen.';
   if(!allowed) $('#seriesInfo').textContent='Du kannst diesen Termin ansehen, aber nicht bearbeiten.';
   toggleAllDay(); $('#eventDialog').showModal();
 }
 function payload() {
   const allDay=$('#allDay').value==='true';
   return {family_id:member.family_id,event_type:$('#eventType').value,title:$('#eventTitle').value.trim(),event_date:$('#eventDate').value,
+    end_date:$('#eventEndDate').value,assignee_all:$('#assigneeAll').checked,expected_updated_at:editingStamp,
+    assignments:[...$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value})),...['transportTo','transportFrom'].filter(id=>$('#'+id).value).map(id=>({role:id==='transportTo'?'to':'from',person_id:$('#'+id).value}))],
     start_time:allDay?null:$('#startTime').value||null,end_time:allDay?null:$('#endTime').value||null,all_day:allDay,
-    location:$('#location').value.trim(),notes:$('#notes').value.trim(),assignee_id:$('#assignee').value||null,
-    transport_to_id:$('#transportTo').value||null,transport_from_id:$('#transportFrom').value||null,
+    location:$('#location').value.trim(),notes:$('#notes').value.trim(),
     reminders:[...new Set($$('#reminders input').map(x=>Number(x.value)))]};
 }
 function validateEvent(data) {
   if(!data.title) throw new Error('Bitte einen Titel eingeben');
-  if(data.end_time&&(!data.start_time||data.end_time<data.start_time)) throw new Error('Das Ende muss nach dem Beginn liegen (gleicher Tag).');
+  if(!data.end_date||data.end_date<data.event_date)throw new Error('Das Enddatum muss am oder nach dem Startdatum liegen.');
+  if(data.end_time&&(!data.start_time||(data.end_date===data.event_date&&data.end_time<data.start_time))) throw new Error('Ende liegt vor Anfang. Für einen Termin über Nacht das Enddatum auf den nächsten Tag setzen.');
+  if($('#recurrence').value==='custom'&&!$$('#weekdayChoices input:checked').length)throw new Error('Bitte mindestens einen Wochentag wählen.');
   if(data.reminders.some(n=>!Number.isInteger(n)||n<0||n>10080)) throw new Error('Erinnerungen: ganze Minuten von 0 bis 10080');
 }
 function askScope(action) {
@@ -201,38 +222,30 @@ function askScope(action) {
   $('#scopeDialog').showModal();
 }
 async function done() {
+  if($('#vacationDialog').open)$('#vacationDialog').close();pendingVacation=null;
   $('#eventDialog').close(); if($('#scopeDialog').open) $('#scopeDialog').close();
   toast('Gespeichert'); await refreshAll();
 }
 async function saveEvent(event) {
   event.preventDefault();
+  $('#eventDialog .dialog-notice')?.remove();
   await busy($('#saveEvent'),async()=>{
     const data=payload(),id=$('#eventId').value,seriesId=$('#seriesId').value;
     validateEvent(data);
-    if(id&&seriesId) return askScope(async scope=>{
-      check(await sb.rpc('update_series_scope',{p_occurrence_id:id,p_scope:scope,p_patch:data})); await done();
-    });
-    if(id) {
-      const {family_id,...changes}=data;
-      const rows=check(await sb.from('events').update(changes).eq('id',id).select('id'));
-      if(rows.length!==1) throw new Error('Nicht gespeichert: Der Termin fehlt oder du hast keine Berechtigung.');
-    } else if($('#recurrence').value!=='none') {
-      check(await sb.rpc('create_event_series',{p_event:data,p_recurrence:$('#recurrence').value,p_until:$('#recurrenceEnd').value||null}));
-    } else {
-      check(await sb.from('events').insert({...data,created_by:user.id}).select('id').single());
-    }
-    await done();
+    if(data.event_type==='vacation'&&!id)return vacationPreview(data);
+    const save=async scope=>{const saved=check(await sb.rpc('save_calendar_event',{p_event:data,p_id:id||null,p_scope:scope,p_recurrence:id?'none':$('#recurrence').value,p_until:$('#recurrenceEnd').value||null,p_weekdays:$$('#weekdayChoices input:checked').map(x=>Number(x.value))}));if(!saved)throw new Error('Nicht gespeichert: Keine Bestätigung vom Server.');await done();};
+    if(id&&seriesId)return askScope(save);
+    return save('single');
   });
 }
 async function deleteEvent() {
-  if(!confirm('Termin wirklich löschen?')) return;
+  if(!confirm('Termin wirklich absagen? Er bleibt erhalten und kann wiederhergestellt werden.')) return;
   await busy($('#deleteEvent'),async()=>{
     const id=$('#eventId').value;
     if($('#seriesId').value) return askScope(async scope=>{
-      check(await sb.rpc('delete_series_scope',{p_occurrence_id:id,p_scope:scope})); await done();
+      check(await sb.rpc('calendar_cancel',{p_id:id,p_scope:scope,p_cancel:true})); await done();
     });
-    const rows=check(await sb.from('events').delete().eq('id',id).select('id'));
-    if(rows.length!==1) throw new Error('Nicht gelöscht: Der Termin fehlt oder du hast keine Berechtigung.');
+    check(await sb.rpc('calendar_cancel',{p_id:id,p_scope:'single',p_cancel:true}));
     await done();
   });
 }
@@ -242,6 +255,9 @@ function renderAdmin() {
   $('#memberList').innerHTML=members.map(m=>'<div class="member"><span class="dot" style="background:'+safeColor(m.color)+'"></span><main><b>'+esc(m.display_name)+'</b><small>'+esc({owner:'Eigentümer',admin:'Administrator',member:'Mitglied'}[m.role])+'</small></main>'+
     (member.role==='owner'||m.role==='member'?'<button data-edit-member="'+esc(m.user_id)+'">Bearbeiten</button>':'')+
     ((m.role==='member'||m.user_id===user.id||(member.role==='owner'&&m.role==='admin'))?'<button data-reset-member="'+esc(m.user_id)+'">Reset-Link</button>':'')+'</div>').join('');
+  $('#memberList').insertAdjacentHTML('afterend','<h3>Testmitglieder ohne Anmeldung</h3><p class="small">Nur für Farben und Zuordnungen; kein Login und keine Berechtigungen.</p>'+testMembers.map(m=>'<div class="member"><span class="dot" style="background:'+safeColor(m.color)+'"></span><main>'+esc(m.display_name)+'</main><button type="button" data-test-edit="'+esc(m.id)+'">Bearbeiten</button></div>').join('')+'<button type="button" id="createTestMember" class="secondary">Testmitglied in Pink hinzufügen</button>');
+  $('#createTestMember').onclick=()=>busy($('#createTestMember'),async()=>{check(await sb.rpc('manage_test_member',{p_name:'Test',p_color:'#ff69b4'}));await refreshAll();});
+  $$('[data-test-edit]').forEach(button=>button.onclick=()=>editTestMember(button.dataset.testEdit));
   $('#makeInvite').onclick=()=>busy($('#makeInvite'),async()=>{
     if(!$('#inviteEmail').reportValidity()||!$('#inviteEmail').value.trim()) throw new Error('Bitte eine gültige E-Mail eingeben');
     const email=$('#inviteEmail').value.trim(), result=await requestAccessLink(sb,'invite',email);
@@ -254,6 +270,30 @@ function renderAdmin() {
     const result=await requestAccessLink(sb,'recovery',target.user_id);
     showAccessResult($('#inviteResult'),result);
   }));
+}
+function editTestMember(id) {
+ const target=testMembers.find(m=>m.id===id);if(!target||!admin())return;
+ $('#settingsHeading').textContent='Testmitglied';
+ $('#settingsContent').innerHTML='<label>Name<input id="testName" maxlength="80" value="'+esc(target.display_name)+'"></label><label>Farbe<input id="testColor" type="color" value="'+safeColor(target.color)+'"></label><button type="button" id="saveTestMember" class="primary">Speichern</button><button type="button" id="removeTestMember" class="danger-btn">Testmitglied entfernen</button><p class="small">Termine bleiben erhalten. Nur die Zuordnungen zu diesem Testmitglied werden entfernt.</p>';
+ $('#saveTestMember').onclick=()=>busy($('#saveTestMember'),async()=>{check(await sb.rpc('manage_test_member',{p_id:id,p_name:$('#testName').value.trim(),p_color:$('#testColor').value}));$('#settingsDialog').close();await refreshAll();});
+ $('#removeTestMember').onclick=()=>busy($('#removeTestMember'),async()=>{if(!confirm('Testmitglied '+target.display_name+' entfernen und seine Zuordnungen lösen? Termine und andere Zuständige bleiben erhalten.'))return;check(await sb.rpc('manage_test_member',{p_id:id,p_remove:true}));$('#settingsDialog').close();await refreshAll();});
+ $('#settingsDialog').showModal();
+}
+async function vacationPreview(data) {
+ if(!admin())throw new Error('Urlaub mit Terminprüfung benötigt Administratorrechte.');
+ const rows=(await fetchEvents(data.event_date,data.end_date,member.family_id)).filter(e=>!e.is_cancelled&&eventsOverlap(e,data));
+ pendingVacation={data,rows,selected:[]};
+ $('#vacationRange').textContent=data.title+' · '+data.event_date+' bis '+data.end_date;
+ const groups=new Map();for(const event of rows){const key=event.series_id||event.id;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(event);}
+ $('#vacationChoices').innerHTML=rows.length?[...groups].map(([key,list])=>'<fieldset><legend>'+esc(list[0].title)+(list[0].series_id?' · Serie':'')+'</legend>'+(list.length>1?'<label class="checkbox-label"><input type="checkbox" data-vacation-group="'+esc(key)+'">Alle '+list.length+' Vorkommen in dieser Auswahl</label>':'')+list.map(e=>'<label class="checkbox-label"><input type="checkbox" data-vacation-id="'+esc(e.id)+'" data-group="'+esc(key)+'">'+esc(e.event_date)+' '+esc(cardTime(e))+' · '+esc(e.title)+'</label>').join('')+'</fieldset>').join(''):'<p>Keine aktiven Termine überschneiden sich mit dem Urlaub.</p>';
+ $$('[data-vacation-group]').forEach(input=>input.onchange=()=>$$('[data-vacation-id]').filter(x=>x.dataset.group===input.dataset.vacationGroup).forEach(x=>x.checked=input.checked));
+ $('#vacationChoices').classList.remove('hidden');$('#vacationNext').classList.remove('hidden');$('#vacationReview').classList.add('hidden');$('#vacationBack').classList.add('hidden');$('#vacationSave').classList.add('hidden');$('#vacationDialog .dialog-notice')?.remove();$('#vacationDialog').showModal();
+}
+function bindVacation() {
+ $('#vacationNext').onclick=()=>{if(!pendingVacation)return;const ids=$$('[data-vacation-id]:checked').map(x=>x.dataset.vacationId);pendingVacation.selected=pendingVacation.rows.filter(e=>ids.includes(e.id));$('#vacationReview').innerHTML='<h3>Bestätigung</h3><p>Urlaub: '+esc(pendingVacation.data.title)+' · '+esc(pendingVacation.data.event_date)+' bis '+esc(pendingVacation.data.end_date)+'</p><p>'+pendingVacation.selected.length+' Termine werden abgesagt. Alle anderen bleiben erhalten.</p><ul>'+pendingVacation.selected.map(e=>'<li>'+esc(e.event_date)+' · '+esc(e.title)+'</li>').join('')+'</ul>';$('#vacationReview').classList.remove('hidden');$('#vacationChoices').classList.add('hidden');$('#vacationNext').classList.add('hidden');$('#vacationBack').classList.remove('hidden');$('#vacationSave').classList.remove('hidden');$('#vacationSave').textContent=pendingVacation.selected.length?'Urlaub speichern und '+pendingVacation.selected.length+' Termine absagen':'Urlaub speichern';};
+ $('#vacationBack').onclick=()=>{$('#vacationChoices').classList.remove('hidden');$('#vacationNext').classList.remove('hidden');$('#vacationReview').classList.add('hidden');$('#vacationBack').classList.add('hidden');$('#vacationSave').classList.add('hidden');};
+ $('#vacationSave').onclick=()=>busy($('#vacationSave'),async()=>{if(!pendingVacation)throw new Error('Bitte Vorschau erneut öffnen.');check(await sb.rpc('save_calendar_event',{p_event:pendingVacation.data,p_cancel:pendingVacation.selected.map(e=>({id:e.id,updated_at:e.updated_at}))}));await done();});
+ $('#vacationDialog').addEventListener('close',()=>{pendingVacation=null;});
 }
 function showAccessResult(root,result) {
   root.innerHTML='<p>'+esc(result.message)+'</p><label>Persönlicher Link<input type="text" readonly class="access-link"></label><button type="button" class="secondary">Link kopieren</button>';
@@ -370,7 +410,12 @@ function bindUI() {
     finally { if($('#scopeDialog').open) $$('#scopeDialog [data-scope]').forEach(x=>x.disabled=!admin()&&['following','series'].includes(x.dataset.scope)); }
     });
   });
-  $$('[data-filter]').forEach(b=>b.onclick=()=>{if(b.dataset.filter==='open') taskFilter='open';else calendarFilter=taskFilter=b.dataset.filter;taskLimit=50;upcomingLimit=5;syncFilters();renderToday();renderWeek();renderTasks();});
+  $$('[data-filter]').forEach(b=>b.onclick=()=>{calendarFilter=taskFilter=b.dataset.filter;taskLimit=50;upcomingLimit=5;syncFilters();renderToday();renderWeek();renderTasks();});
+  $('#assigneeAll').onchange=()=>$$('#assigneePeople input').forEach(x=>{x.disabled=$('#assigneeAll').checked;if(x.disabled)x.checked=false;});
+  $('#recurrence').onchange=()=>$('#weekdayChoices').classList.toggle('hidden',$('#recurrence').value!=='custom');
+  $('#eventType').onchange=()=>{const type=$('#eventType').value,id=$('#eventId').value;if(!id){if(type==='bedtime'){$('#eventEndDate').value=localDate(addDays(dateAtNoon($('#eventDate').value),1));if(!$('#startTime').value)$('#startTime').value='20:00';if(!$('#endTime').value)$('#endTime').value='06:00';}if(type==='vacation'){$('#allDay').value='true';$('#recurrence').value='none';$('#weekdayChoices').classList.add('hidden');toggleAllDay();}}$('#recurrence').disabled=!!id||type==='vacation';$('#recurrenceEnd').disabled=!!id||type==='vacation';$('#saveEvent').textContent=type==='vacation'&&!id?'Nächster Schritt':'Speichern';};
+  $('#eventDate').onchange=()=>{if($('#eventEndDate').value<$('#eventDate').value)$('#eventEndDate').value=$('#eventDate').value;};
+  bindVacation();
   $('#moreUpcoming').onclick=()=>{upcomingLimit+=10;renderToday();};
   $('#moreTasks').onclick=()=>{taskLimit+=50;renderTasks();};
   $$('#moreView [data-action]').forEach(b=>b.onclick=()=>openSettings(b.dataset.action));
