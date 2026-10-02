@@ -12,13 +12,13 @@ function fixture({rows=[]}={}) {
   const w=dom.window,calls=[];
   w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
   w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');this.dispatchEvent(new w.Event('close'));};
-  const sb={auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>{},signOut:async()=>({data:{}}),verifyOtp:async()=>({data:{session:{},user:{id:'u1'}}}),updateUser:async data=>{calls.push({action:'password',length:data.password.length});return {data:{}};}},from(table){
+  const sb={auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>{},signOut:async()=>({data:{}}),verifyOtp:async()=>({data:{session:{},user:{id:'u1'}}}),setSession:async data=>{calls.push({action:'reset-session'});return {data:{session:{},user:{id:'u1'}}};},resetPasswordForEmail:async(email,options)=>{calls.push({action:'recovery-mail',email,options});return {data:{}};},updateUser:async data=>{calls.push({action:'password',length:data.password.length});return {data:{}};}},from(table){
     const q={action:'read',filters:[],select(){return this;},eq(...args){this.filters.push(args);return this;},gte(){return this;},lte(){return this;},order(){return this;},range(){return this;},update(){this.action='update';return this;},insert(){this.action='insert';return this;},delete(){this.action='delete';return this;},maybeSingle(){return this;},single(){return this;},then(resolve){calls.push({table,action:this.action});return Promise.resolve({data:table==='family_members'&&this.action==='read'?[member]:rows,error:null}).then(resolve);}};
     return q;
   },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:null,error:null};}};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
   Object.assign(w,{...utils,...links,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
-  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={openEvent,payload,card,askScope,setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
+  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openEvent,payload,card,askScope,setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
@@ -43,8 +43,41 @@ test('invited user sets a password before joining and no public signup control e
   assert.equal(f.calls.find(c=>c.name==='join_family').args.p_code,'b'.repeat(32));
  }finally{f.close();}
 });
-test('forgot password explains personal admin reset instead of sending an email',()=>{
- const f=fixture();try{f.w.document.querySelector('#forgotPassword').click();assert.match(f.w.document.querySelector('#authInfo').textContent,/persönlichen Reset-Link/);}finally{f.close();}
+test('recovery mail uses only valid email, fixed redirect and neutral message with admin fallback',async()=>{
+ const f=fixture();try{
+  f.w.document.querySelector('#forgotPassword').click();await new Promise(r=>setTimeout(r,10));
+  assert.ok(!f.calls.some(c=>c.action==='recovery-mail'));
+  f.w.document.querySelector('#email').value='owner@example.com';
+  f.w.document.querySelector('#forgotPassword').click();await new Promise(r=>setTimeout(r,10));
+  const call=f.calls.find(c=>c.action==='recovery-mail');assert.equal(call.email,'owner@example.com');assert.equal(call.options.redirectTo,'https://vbcoco.github.io/Famkal/');
+  assert.match(f.w.document.querySelector('#authInfo').textContent,/Falls für diese Adresse/);
+  assert.match(f.w.document.querySelector('#authInfo').textContent,/Spam-Ordner.*Familien-Administrator/);
+  f.w.document.querySelector('#forgotPassword').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(f.calls.filter(c=>c.action==='recovery-mail').length,1);
+ }finally{f.close();}
+});
+test('mail recovery shows password dialog and never joins a family',async()=>{
+ const f=fixture();try{
+  f.w.testApp.setAccessLink({kind:'recovery',accessToken:'header.payload.signature',refreshToken:'refresh-token',familyCode:null});
+  f.w.document.querySelector('#redeemLink').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(f.w.document.querySelector('#passwordDialog').open,true);
+  assert.ok(f.calls.some(c=>c.action==='reset-session'));
+  f.w.document.querySelector('#newPassword').value='long-test-password9';f.w.document.querySelector('#confirmPassword').value='long-test-password9';
+  f.w.document.querySelector('#passwordForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,20));
+  assert.ok(f.calls.some(c=>c.action==='password'));assert.ok(!f.calls.some(c=>c.name==='join_family'));
+ }finally{f.close();}
+});
+test('opening a mail callback immediately removes tokens and requires explicit activation',async()=>{
+ const f=fixture();try{
+  f.w.location.hash='type=recovery&access_token=header.payload.signature&refresh_token=refresh-token';
+  await f.w.testApp.start();
+  assert.equal(f.w.location.hash,'');
+  assert.equal(f.w.document.querySelector('#passwordDialog').open,false);
+  assert.ok(!f.calls.some(c=>c.action==='reset-session'));
+  assert.match(f.w.document.querySelector('#authInfo').textContent,/Reset-Link/);
+  f.w.document.querySelector('#redeemLink').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(f.w.document.querySelector('#passwordDialog').open,true);
+ }finally{f.close();}
 });
 test('profile opens the read-only project list',async()=>{
   const f=fixture();try{

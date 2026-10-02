@@ -1,6 +1,6 @@
 import { createClient } from './vendor/supabase.js';
 import { mountProjectList } from './project-list.js';
-import { parseAccessLink, redeemAccessLink, requestAccessLink } from './access-links.js';
+import { parseAccessLink, redeemAccessLink, requestAccessLink, requestRecoveryEmail } from './access-links.js';
 import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent } from './calendar-utils.js';
 
 const cfg = window.APP_CONFIG || {};
@@ -301,7 +301,18 @@ function bindUI() {
     $('#authInfo').textContent='';
     if(data.session) { user=data.user; await loadMembership(); }
   }); };
-  $('#forgotPassword').onclick=()=>{$('#authInfo').textContent='Bitte deinen Familien-Admin um einen persönlichen Reset-Link bitten. Wenn der einzige Owner keinen Zugang mehr hat, erfolgt die Wiederherstellung über das Supabase-Dashboard.';};
+  $('#forgotPassword').onclick=()=>busy($('#forgotPassword'),async()=>{
+    const input=$('#email');
+    if(!input.reportValidity()) {$('#authInfo').textContent='Bitte zuerst deine Famkal-E-Mail-Adresse eintragen.';return;}
+    let last=0;try{last=Number(sessionStorage.getItem('famkal-recovery-requested-at'))||0;}catch{}
+    if(Date.now()-last<60000) {$('#authInfo').textContent='Bitte mindestens eine Minute warten, bevor du erneut eine Recovery-Mail anforderst. Prüfe auch deinen Spam-Ordner.';return;}
+    $('#authInfo').textContent='Recovery-Mail wird angefordert …';
+    try {
+      const message=await requestRecoveryEmail(sb,input.value.trim());
+      try{sessionStorage.setItem('famkal-recovery-requested-at',String(Date.now()));}catch{}
+      $('#authInfo').textContent=message;
+    }catch(error){$('#authInfo').textContent=errorText(error);}
+  });
   $('#redeemLink').onclick=()=>busy($('#redeemLink'),async()=>{
     if(!accessLink)throw new Error('Bitte einen neuen Link beim Admin anfordern');
     const data=await redeemAccessLink(sb,accessLink);user=data.user;
@@ -381,7 +392,7 @@ async function start() {
       },0);
     });
     const data=check(await sb.auth.getSession());
-    if(accessLink){show('auth');$('#inviteLinkBox').classList.remove('hidden');$('#authInfo').textContent='Dieser persönliche Link meldet dich beim eingeladenen Konto an. Bitte nur deinen eigenen Link öffnen.';}
+    if(accessLink){show('auth');$('#inviteLinkBox').classList.remove('hidden');$('#authInfo').textContent=accessLink.kind==='invite'?'Dieser persönliche Link meldet dich beim eingeladenen Konto an. Bitte nur deinen eigenen Link öffnen.':'Dieser persönliche Reset-Link ermöglicht Zugang zu deinem Konto. Bitte nur deinen eigenen Link verwenden und anschließend dein neues Passwort festlegen.';}
     else if(data.session) {
       user=data.session.user;
       await loadMembership();

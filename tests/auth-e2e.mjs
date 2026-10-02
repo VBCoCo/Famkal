@@ -5,6 +5,7 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import vm from 'node:vm';
 import {createClient} from '@supabase/supabase-js';
+import {parseAccessLink,redeemAccessLink} from '../access-links.js';
 const fixtures=JSON.parse(await readFile(process.argv[2],'utf8'));
 const context={window:{}};vm.runInNewContext(await readFile(new URL('../config.js',import.meta.url),'utf8'),context);
 const config=context.window.APP_CONFIG;
@@ -43,7 +44,11 @@ try {
  must(recovery.status===200&&recovery.data.kind==='recovery','Owner can generate own recovery link without SMTP');
  const resetHash=new URLSearchParams(new URL(recovery.data.url).hash.slice(1));
  must(!resetHash.has('family_code'),'Recovery does not grant a family invitation');
- const reset=client();ok(await reset.auth.verifyOtp({type:'recovery',token_hash:resetHash.get('token_hash')}),'Redeem recovery');
+ const verified=client(),recoverySession=ok(await verified.auth.verifyOtp({type:'recovery',token_hash:resetHash.get('token_hash')}),'Redeem recovery').session;
+ // This is the same fragment shape emitted by Supabase's normal mail redirect.
+ const callback=parseAccessLink('#'+new URLSearchParams({type:'recovery',access_token:recoverySession.access_token,refresh_token:recoverySession.refresh_token}));
+ const reset=client(),restored=await redeemAccessLink(reset,callback);
+ must(restored.user.id===b.id&&!!restored.session,'Standard mail callback restores the correct real Auth session');
  const resetPassword=password();ok(await reset.auth.updateUser({password:resetPassword}),'Change recovered password');
  must(!!(await client().auth.signInWithPassword({email:b.email,password:b.password})).error,'Old recovered password is rejected');
  must(!!ok(await client().auth.signInWithPassword({email:b.email,password:resetPassword}),'Recovered account login').session,'Recovered account accepts new password');

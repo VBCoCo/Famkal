@@ -1,4 +1,34 @@
-# Leonhards Familienkalender — Famkal 1.3.0
+# Leonhards Familienkalender — Famkal 1.3.1
+
+## Recovery-Mail für den Owner (1.3.1)
+
+Auf der Anmeldeseite E-Mail-Adresse eintragen und „Passwort vergessen?“ wählen.
+Die Antwort verrät weder vorhandene Konten noch die Mailfreigabe: „Falls für
+diese Adresse eine Wiederherstellung möglich ist, erhältst du eine E-Mail.
+Falls du keine E-Mail erhältst, prüfe bitte deinen Spam-Ordner und wende dich
+anschließend an deinen Familien-Administrator.“ Wiederholungen werden im
+gleichen Browser für eine Minute gebremst; Supabase erzwingt seine Serverlimits.
+
+Der Supabase-Standardversand funktioniert ohne eigenen SMTP nur für bestätigte
+Mitglieder der Projektorganisation; die Adresse muss exakt der Famkal-Adresse
+entsprechen. Der Owner ist inzwischen mit dieser Adresse beigetreten. Das
+Projektkontingent beträgt derzeit zwei E-Mails je Stunde, ohne Zustellgarantie.
+Famkal-Mitgliedschaft allein autorisiert keinen Mailversand. Persönliche
+Admin-Reset-Links bleiben als Alternative verfügbar.
+
+Supabase bestätigt den Mail-Link und leitet zur festen Famkal-Adresse mit einer
+Recovery-Sitzung im URL-Fragment weiter (Implicit Flow). Famkal entfernt die
+Tokens sofort aus der Adresszeile und übernimmt sie erst nach bewusstem Klick;
+Supabase validiert die Sitzung über `setSession`. Danach erscheint der
+Passwortdialog. Kein Familienbeitritt und keine Rollenänderung durch Recovery.
+Abgelaufene Links und fehlerhafte Sitzungen werden abgefangen. Die bestehenden
+manuell erzeugten Token-Hash-Links funktionieren weiterhin. Keine Tokens oder
+Mailadressen im Projektlog speichern.
+
+Prüfung am 02.10.2026: 31 Anwendungstests und 14 reale Auth-Prüfungen bestanden.
+Die Mail-Anforderung für den Owner wurde von Supabase ohne Fehler akzeptiert.
+Der tatsächliche Eingang und der Klick aus dessen Postfach müssen vom Owner
+bestätigt werden; Postfachzugriff stand für diesen Test nicht zur Verfügung.
 
 ## Einladungsbasierte Konten ohne SMTP (1.3.0)
 
@@ -17,7 +47,7 @@ Die Vorbereitungsmigration `20261002070047_invite_only_auth_v130.sql` lässt `pr
 - `tests/invite-security.sql` und die bisherigen SQL-Tests ausführen; synthetische Daten werden zurückgerollt. Auth-End-to-End-Test mit einem eigens dafür angelegten Konto durchführen; bestehende Konten und Passwörter nicht verändern.
 - Die Aktivierungsmigration `20261002071717_activate_invite_only_auth_v130.sql` ist absichtlich gesperrt. Erst nach bestätigten Auth-Einstellungen und End-to-End-Prüfung in derselben Migrationstransaktion `select set_config('famkal.auth_config_verified','yes',true);` voranstellen. Sie aktiviert Link-Freigabe und sperrt die alten `create_family`-/`create_family_invitation`-RPCs für `authenticated`. Mit Veröffentlichung der Oberfläche abstimmen. Bei Fehlern Freigabe deaktivieren; keine bestehenden Konten löschen.
 
-Die Einladungslinks senden keine E-Mail. „Passwort vergessen“ verweist auf den Familien-Admin. Normale Supabase-Recovery-Mails sind ohne SMTP für weitere Familienadressen nicht zuverlässig verfügbar. Keine automatische Wiederherstellung versprechen.
+Die Einladungslinks senden keine E-Mail. Seit 1.3.1 kann „Passwort vergessen“ eine Recovery-Mail anfordern. Ohne eigenen SMTP sind nur Organisationsmitglieder für diesen Versand zugelassen. Für andere Familienadressen bleiben die persönlichen Admin-Reset-Links erforderlich.
 
 ## Projektliste (1.2.0)
 
@@ -161,8 +191,8 @@ keinen gleichwertigen Schutz gegen bereits kompromittierte Passwörter.
 Dashboard am 02.10.2026 geprüft: öffentliche/anonyme Registrierung aus,
 E-Mail-Bestätigung und sichere E-Mail-/Passwortänderung aktiv, Mindestlänge 12,
 Buchstaben und Ziffern erforderlich, OTP-Gültigkeit 3600 Sekunden. Site URL und
-einzige Redirect URL: `https://vbcoco.github.io/Famkal/`. Einladung und Recovery
-nutzen eigene URL-Fragmente. Die Serverprüfung der Passwortlänge ist durch den
+einzige Redirect URL: `https://vbcoco.github.io/Famkal/`. Persönliche Admin-Links
+nutzen eigene URL-Fragmente; Recovery-Mails den Standard-Implicit-Flow. Die Serverprüfung der Passwortlänge ist durch den
 realen Auth-Test bestätigt. Bestehende kürzere Passwörter werden beim Login nicht
 ausgesperrt. Projektinterne Link-Limits: höchstens ein Link je Familie/Minute und
 zehn je Stunde; plattformweite Auth-Limits bleiben zusätzliche Grenzen.
