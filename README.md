@@ -1,4 +1,11 @@
-# Leonhards Familienkalender — Famkal 1.5.0
+# Leonhards Familienkalender — Famkal 1.5.1
+
+## Personenfarben korrigiert (1.5.1)
+
+Die Terminkarten haben eine einzige Basisregel für Rahmen, Fläche und Farbe.
+Der transparente Rahmen zeigt wieder Personenfarben und Farbverläufe; abgesagte
+Termine behalten ihre graue Innenfläche. Keine Änderungen an Kalenderdaten oder
+Berechtigungen.
 
 ## Zuständigkeiten, Zeiträume und Urlaub (1.5.0)
 

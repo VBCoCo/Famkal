@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Famkal 1.5.1 – Farbprüfung</title>
+<link rel="stylesheet" href="../styles.css">
+<main style="max-width:560px;margin:24px auto;padding:16px">
+  <h1>Farbprüfung · 1.5.1</h1>
+  <p>Darstellungsprüfung mit Beispielen ohne Kalenderdaten.</p>
+  <article class="event-card" data-color="blue"><details><summary><span class="event-heading"><small>Blau · Robert</small><strong>Einzelne Zuständigkeit</strong></span></summary></details></article>
+  <article class="event-card" data-color="pink"><details><summary><span class="event-heading"><small>Pink · Test</small><strong>Testmitglied</strong></span></summary></details></article>
+  <article class="event-card" data-color="all"><details><summary><span class="event-heading"><small>Blau und Pink</small><strong>Alle / mehrere Zuständige</strong></span></summary></details></article>
+  <article class="event-card cancelled" data-color="pink"><details><summary><span class="event-heading"><small>Pink · graue Innenfläche</small><strong>Abgesagter Termin</strong></span></summary></details></article>
+</main>
+<script type="module">
+import {assignmentColors} from '../calendar-utils.js';
+const people=[{user_id:'robert',color:'#0061fe'},{user_id:'pink',color:'#ff69b4'}];
+const examples={blue:{assignee_id:'robert'},pink:{assignments:[{role:'assignee',test_member_id:'pink'}]},all:{assignee_all:true}};
+document.querySelectorAll('[data-color]').forEach(card=>card.style.setProperty('--assignment',assignmentColors(examples[card.dataset.color],people)));
+</script>
+</html>

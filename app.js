@@ -104,7 +104,7 @@ function card(event, {mine=false, task=false, day=event.event_date}={}) {
   for(const [role,label] of [['to','Bringt'],['from','Holt'],['assignee','Zuständig']]) for(const id of assignmentIds(event,role))if(!mine||id!==user?.id)chips.push(label+': '+esc(person(id)?.display_name||'Unbekannt'));
   if(event.assignee_all)chips.push('Zuständig: Alle Familienmitglieder');
   const open=openAssignment(event), roles=eventRoles(event,mine?user?.id:undefined);
-  return '<article class="event-card'+(event.is_cancelled?' cancelled':'')+'" data-id="'+esc(event.id)+'" style="--person:#888888;--assignment:'+assignmentColors(event,allPeople(),user?.id)+'"><details'+(expandedEvents.has(event.id)?' open':'')+'><summary><span class="event-heading"><small>'+
+  return '<article class="event-card'+(event.is_cancelled?' cancelled':'')+'" data-id="'+esc(event.id)+'" style="--assignment:'+assignmentColors(event,allPeople(),user?.id)+'"><details'+(expandedEvents.has(event.id)?' open':'')+'><summary><span class="event-heading"><small>'+
     typeIcon(event.event_type)+' '+esc(cardTime(event,day))+'</small><strong>'+esc(event.title)+'</strong>'+
     ((task||mine)&&roles.length?'<span class="event-role">'+roles.map(esc).join(' · ')+'</span>':'')+
     (event.is_cancelled?'<span class="assignment-open">Abgesagt'+(event.vacation_cancel_id?' · Urlaub':'')+'</span>':open?'<span class="assignment-open">'+esc(open)+'</span>':'')+'</span><span class="expand-icon" aria-hidden="true">⌄</span><span class="visually-hidden">Details ein- oder ausklappen</span></summary><div class="event-details">'+
