@@ -45,7 +45,18 @@ begin
   perform pg_temp.expect_denied(format('update public.events set title=%L where id=%L',' ',occurrence),'23514');
   perform pg_temp.expect_denied(format('update public.events set reminders=array[-1] where id=%L',occurrence),'23514');
   perform pg_temp.expect_denied(format('update public.family_members set color=%L where user_id=%L','"><img onerror=x>',o),'23514');
-  invite:=public.create_family_invitation(outsider||'@test.invalid');
+  if has_function_privilege('authenticated','public.create_family_invitation(text)','EXECUTE') then
+    invite:=public.create_family_invitation(outsider||'@test.invalid');
+  else
+    -- Invite-only releases disable this legacy API. Joining is tested with a
+    -- transaction-only fixture; service link authorization has its own suite.
+    perform pg_temp.expect_denied(format('select public.create_family_invitation(%L)',outsider||'@test.invalid'),'42501');
+    perform pg_temp.expect_denied('select public.create_family(''Unauthorized'')','42501');
+    execute 'reset role';
+    insert into public.family_invitations(family_id,email,code,created_by,expires_at)
+    values(f,outsider||'@test.invalid',upper(replace(gen_random_uuid()::text,'-','')),o,now()+interval '1 hour') returning code into invite;
+    execute 'set local role authenticated';
+  end if;
 
   -- Admin cannot promote self, others, or downgrade owner.
   perform set_config('request.jwt.claims',jsonb_build_object('sub',a,'role','authenticated')::text,true);
