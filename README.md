@@ -1,4 +1,40 @@
-# Leonhards Familienkalender — Famkal 1.3.1
+# Leonhards Familienkalender — Famkal 1.4.0
+
+## Kalender und Aufgaben auf dem iPhone (1.4.0)
+
+Heute und Woche teilen den Filter „Alle Termine / Für mich“. Der Filter bleibt
+zusammen mit dem Kopfbereich beim Scrollen sichtbar; die Auswahl gilt beim
+Ansichtswechsel weiter. Aufgaben verwenden dieselben Bezeichnungen und bieten
+zusätzlich „Ungeklärt“. Diese Zusatzoption wirkt nur auf Aufgaben. Die Auswahl
+wird beim Abmelden zurückgesetzt und startet mit allen Terminen.
+
+Unter Heute erscheinen die kommenden Termine der nächsten 120 Tage, auch wenn
+heute nichts eingetragen ist. Zunächst fünf, weitere in Schritten von zehn.
+Die Terminkarten zeigen Uhrzeit, Art und Titel; im persönlichen Filter und in
+Aufgaben auch die Tätigkeit. Details, Personen, Ort, Notizen und vorbereitete
+Erinnerungen werden aufgeklappt. Bearbeiten/Ansehen ist davon getrennt; die
+bisherigen Rechte und der Serieneditor gelten unverändert. Bei „Für mich“
+entfällt der eigene Name, andere beteiligte Personen bleiben in Details sichtbar.
+
+Die Personenfarbe umrandet die Karte und den breiteren linken Streifen. Bei
+eigener Beteiligung hat die eigene Farbe Vorrang. „Zuständigkeit offen“ markiert
+Termine ohne Zuordnung; bei Betreuung/Bettgehzeit fehlt der Zuständige, bei
+Fahrten fehlen beide Fahrtzuordnungen. Eine Fahrt benötigt nicht zwangsläufig
+Hin- und Rückweg. Eine teilweise zugeordnete allgemeine Veranstaltung gilt
+nicht automatisch als ungeklärt, da keine Pflichtrollen im Datenmodell existieren.
+
+Aufgaben berücksichtigen jetzt jede Terminart mit Bringt, Holt oder Zuständig,
+einschließlich allgemeiner Termine und Schule. Ungeklärte Fahrten, Betreuung
+und Bettgehzeit bleiben Aufgaben. Mehrere Rollen ergeben nur eine Karte mit
+den Tätigkeiten. Das Plus sitzt innerhalb der unteren Navigationszeile.
+
+Prüfung: 40 automatisierte Tests bestanden, einschließlich Filterwechsel,
+zukünftiger Termine, Zuordnung, fehlender Zuständigkeit, Aufklappen/Bearbeiten,
+HTML-Escaping und bestehender Auth-/Serienprüfungen. Keine Backend-, Schema-
+oder Berechtigungsänderungen; Kalenderdaten unverändert.
+Robert bestätigt für 1.3.1: Termine und Serien anlegen, einzelnen Serientermin
+ändern und Eingang der Recovery-Mail funktionieren. Einladung, PWA und
+vollständiger Recovery-Passwortwechsel sind noch nicht bestätigt.
 
 ## Recovery-Mail für den Owner (1.3.1)
 

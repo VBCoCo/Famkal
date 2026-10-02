@@ -18,7 +18,7 @@ function fixture({rows=[]}={}) {
   },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:null,error:null};}};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
   Object.assign(w,{...utils,...links,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
-  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openEvent,payload,card,askScope,setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
+  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
@@ -129,4 +129,72 @@ test('series metadata is visible but ineffective recurrence changes are disabled
     assert.equal(f.w.document.querySelector('#recurrence').disabled,true);
     assert.equal(f.w.document.querySelector('#recurrenceEnd').value,'2027-01-01');
   }finally{f.close();}
+});
+const makeEvent=(id,extra={})=>({id,title:id,event_date:utils.localDate(utils.addDays(new Date(),1)),event_type:'appointment',start_time:'15:00:00',created_by:'u1',reminders:[],...extra});
+test('empty today still shows upcoming assigned appointments and more works',()=>{
+ const f=fixture();try{
+  f.w.testApp.setEvents(Array.from({length:7},(_,n)=>makeEvent('future'+n,{assignee_id:'u1'})));
+  assert.match(f.w.document.querySelector('#todayList').textContent,/nichts eingetragen/);
+  assert.equal(f.w.document.querySelectorAll('#upcomingList .event-card').length,5);
+  assert.equal(f.w.document.querySelector('#moreUpcoming').classList.contains('hidden'),false);
+  f.w.document.querySelector('#moreUpcoming').click();assert.equal(f.w.document.querySelectorAll('#upcomingList .event-card').length,7);
+ }finally{f.close();}
+});
+test('shared filters persist between views and exclude other people in each list',()=>{
+ const f=fixture();try{
+  f.w.testApp.setEvents([makeEvent('mine',{assignee_id:'u1'}),makeEvent('other',{assignee_id:'u2'})]);
+  f.w.document.querySelector('[data-filter=mine]').click();
+  assert.equal(f.w.document.querySelectorAll('#upcomingList .event-card').length,1);
+  f.w.testApp.navigate('week');assert.equal(f.w.document.querySelector('[data-filter=mine]').getAttribute('aria-pressed'),'true');
+  assert.ok(!f.w.document.querySelector('#weekList [data-id=other]'));
+  f.w.testApp.navigate('tasks');assert.equal(f.w.document.querySelectorAll('#tasksList .event-card').length,1);
+  f.w.document.querySelector('[data-filter=all]').click();f.w.testApp.navigate('today');
+  assert.equal(f.w.document.querySelectorAll('#upcomingList .event-card').length,2);
+ }finally{f.close();}
+});
+test('all appointment assignments appear once as tasks, grouped by day',()=>{
+ const f=fixture();try{
+  f.w.testApp.setEvents([makeEvent('orthodontist',{assignee_id:'u1',transport_to_id:'u1',transport_from_id:'u1'}),makeEvent('school',{event_type:'school',assignee_id:'u1'}),makeEvent('plain')]);
+  assert.equal(f.w.document.querySelectorAll('#tasksList .event-card').length,2);
+  assert.equal(f.w.document.querySelectorAll('#tasksList>h3').length,1);
+  assert.match(f.w.document.querySelector('#tasksList').textContent,/Bringen · Abholen · Zuständig/);
+ }finally{f.close();}
+});
+test('unresolved task filter covers missing care assignee and keeps calendar selection',()=>{
+ const f=fixture();try{
+  f.w.testApp.setEvents([makeEvent('care',{event_type:'care',transport_to_id:'u1'}),makeEvent('assigned',{assignee_id:'u1'}),makeEvent('ride',{event_type:'transport'})]);
+  f.w.testApp.navigate('tasks');f.w.document.querySelector('[data-filter=open]').click();
+  assert.equal(f.w.document.querySelectorAll('#tasksList .event-card').length,2);
+  assert.match(f.w.document.querySelector('#tasksList').textContent,/Zuständigkeit offen/);
+  f.w.testApp.navigate('today');assert.equal(f.w.document.querySelector('[data-filter=all]').getAttribute('aria-pressed'),'true');
+  assert.equal(f.w.document.querySelector('#openFilter').classList.contains('hidden'),true);
+ }finally{f.close();}
+});
+test('compact cards expand separately from editing, own color and no redundant own name',()=>{
+ const f=fixture();try{
+  f.w.testApp.setPeople([{user_id:'u1',display_name:'Robert',color:'#0066ff'},{user_id:'u2',display_name:'Anna',color:'#ff0000'}]);
+  f.w.testApp.setEvents([makeEvent('appointment',{assignee_id:'u2',transport_to_id:'u1',location:'Praxis',notes:'Notiz'})]);
+  f.w.document.querySelector('[data-filter=mine]').click();
+  const card=f.w.document.querySelector('#upcomingList .event-card');
+  assert.equal(card.style.getPropertyValue('--person'),'#0066ff');assert.ok(!card.textContent.includes('Robert'));
+  assert.ok(card.textContent.includes('Anna'));assert.ok(!card.querySelector('summary').textContent.includes('Praxis'));
+  assert.equal(card.querySelector('details').open,false);card.querySelector('details').open=true;
+  assert.equal(f.w.document.querySelector('#eventDialog').open,false);
+  card.querySelector('[data-edit-event]').click();assert.equal(f.w.document.querySelector('#eventDialog').open,true);
+ }finally{f.close();}
+});
+test('card content and IDs cannot inject markup and readonly card keeps editor restrictions',()=>{
+ const f=fixture();try{
+  f.w.testApp.setRole('member');
+  const card=f.w.testApp.card(makeEvent('x\" onclick=\"alert(1)',{title:'<img src=x onerror=alert(1)>',notes:'<script>alert(1)</script>',created_by:'u2'}));
+  const host=f.w.document.createElement('div');host.innerHTML=card;
+  assert.equal(host.querySelector('img,script,[onclick]'),null);assert.match(host.textContent,/Termin ansehen/);
+ }finally{f.close();}
+});
+test('session cleanup clears upcoming items, filter and private content',()=>{
+ const f=fixture();try{
+  f.w.testApp.setEvents([makeEvent('private',{assignee_id:'u1'})]);f.w.document.querySelector('[data-filter=mine]').click();
+  f.w.testApp.clearSession();assert.equal(f.w.document.querySelector('#upcomingList').textContent,'');
+  f.w.testApp.setState();f.w.testApp.navigate('today');assert.equal(f.w.document.querySelector('[data-filter=all]').getAttribute('aria-pressed'),'true');
+ }finally{f.close();}
 });

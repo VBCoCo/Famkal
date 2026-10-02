@@ -1,10 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {localDate,addDays,weekBounds,queryBounds,safeColor,escapeHtml,eventTime,nextEvent} from '../calendar-utils.js';
+import {localDate,addDays,weekBounds,queryBounds,safeColor,escapeHtml,eventTime,nextEvent,assignedTo,eventRoles,openAssignment,isTask,filterEvents} from '../calendar-utils.js';
 process.env.TZ='Europe/Berlin';
 test('German midnight stays on the local calendar day',()=>{
   assert.equal(localDate(new Date('2026-10-01T00:30:00+02:00')),'2026-10-01');
   assert.equal(localDate(new Date('2026-01-01T00:15:00+01:00')),'2026-01-01');
+});
+test('all assignment roles count across event types and do not match missing user',()=>{
+ for(const key of ['assignee_id','transport_to_id','transport_from_id'])for(const event_type of ['appointment','school','transport','care','bedtime']){
+  const event={event_type,[key]:'u1'};assert.equal(assignedTo(event,'u1'),true);assert.equal(isTask(event),true);
+  assert.equal(filterEvents([event],'mine','u2').length,0);
+ }
+ assert.equal(assignedTo({},undefined),false);
+ assert.equal(isTask({event_type:'appointment'}),false);
+ assert.deepEqual(eventRoles({assignee_id:'u1',transport_to_id:'u1',transport_from_id:'u2'},'u1'),['Bringen','Zuständig']);
+});
+test('unresolved roles follow event type without inventing unrequested return journeys',()=>{
+ assert.equal(openAssignment({event_type:'transport',transport_to_id:'u1'}),'');
+ assert.equal(openAssignment({event_type:'transport',assignee_id:'u1'}),'Fahrt ungeklärt');
+ assert.equal(openAssignment({event_type:'care',transport_to_id:'u1'}),'Zuständigkeit offen');
+ assert.equal(openAssignment({event_type:'bedtime',assignee_id:'u1'}),'');
+ assert.equal(openAssignment({event_type:'appointment'}),'Zuständigkeit offen');
 });
 test('calendar arithmetic survives daylight saving transitions',()=>{
   const d=new Date('2026-03-28T12:00:00+01:00');

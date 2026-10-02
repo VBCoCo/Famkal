@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.3.1';
+export const APP_VERSION = '1.4.0';
 export function localDate(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
@@ -17,6 +17,20 @@ export function queryBounds(offset = 0, now = new Date()) {
 export function escapeHtml(value) { return String(value??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 export function safeColor(value) { return /^#[0-9a-f]{6}$/i.test(value??'') ? value : '#888888'; }
 export function eventTime(event) { return event.all_day ? 'Ganztägig' : event.start_time?.slice(0,5)||'Ohne Uhrzeit'; }
+export function assignedTo(event, userId) { return !!userId && [event.assignee_id,event.transport_to_id,event.transport_from_id].includes(userId); }
+export function eventRoles(event, userId) {
+  return [['transport_to_id','Bringen'],['transport_from_id','Abholen'],['assignee_id','Zuständig']]
+    .filter(([key])=>event[key] && (!userId || event[key]===userId)).map(([,label])=>label);
+}
+export function openAssignment(event) {
+  if(event.event_type==='transport' && !event.transport_to_id && !event.transport_from_id) return 'Fahrt ungeklärt';
+  if(['care','bedtime'].includes(event.event_type) && !event.assignee_id) return 'Zuständigkeit offen';
+  return eventRoles(event).length ? '' : 'Zuständigkeit offen';
+}
+export function isTask(event) { return eventRoles(event).length>0 || ['transport','care','bedtime'].includes(event.event_type); }
+export function filterEvents(events, filter, userId) {
+  return events.filter(event=>filter==='mine' ? assignedTo(event,userId) : filter==='open' ? !!openAssignment(event) : true);
+}
 export function nextEvent(events, now = new Date()) {
   const today=localDate(now);
   return events.find(e=>e.event_date===today && !e.all_day && e.start_time && new Date(`${e.event_date}T${e.start_time}`)>=now);

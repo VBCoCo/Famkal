@@ -1,12 +1,13 @@
 import { createClient } from './vendor/supabase.js';
 import { mountProjectList } from './project-list.js';
 import { parseAccessLink, redeemAccessLink, requestAccessLink, requestRecoveryEmail } from './access-links.js';
-import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent } from './calendar-utils.js';
+import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent, assignedTo, eventRoles, openAssignment, isTask, filterEvents } from './calendar-utils.js';
 
 const cfg = window.APP_CONFIG || {};
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
-let sb, user=null, member=null, members=[], events=[], series=[], weekOffset=0, taskFilter='mine', taskLimit=50;
+let sb, user=null, member=null, members=[], events=[], series=[], weekOffset=0, calendarFilter='all', taskFilter='all', taskLimit=50, upcomingLimit=5;
+const expandedEvents=new Set();
 let accessLink=null, pendingFamilyCode=null;
 let refreshNumber=0, authNumber=0, pendingScope=null, recovery=false, initialized=false, currentView='today', toastTimer;
 const admin = () => ['owner','admin'].includes(member?.role);
@@ -20,10 +21,10 @@ const errorText = error => !navigator.onLine ? 'Offline: Zum Laden und Speichern
 function show(id) { ['auth','onboarding','app'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id)); }
 function clearSession() {
   authNumber++; refreshNumber++; user=null; member=null; members=[]; events=[]; series=[];
-  weekOffset=0; currentView='today'; pendingScope=null;
+  weekOffset=0; currentView='today'; pendingScope=null; calendarFilter='all'; taskFilter='all'; taskLimit=50; upcomingLimit=5; expandedEvents.clear();
   $$('dialog[open]').forEach(d=>d.close());
   $('#settingsContent').replaceChildren(); $('#inviteLinkBox').classList.add('hidden');
-  ['todayList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
+  ['todayList','upcomingList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
   show('auth');
 }
 async function busy(button, action) {
@@ -45,6 +46,13 @@ function navigate(view) {
   $$('.view').forEach(v=>v.classList.toggle('active',v.id===view+'View'));
   $$('nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
   $('#title').textContent={today:'Heute',week:'Woche',tasks:'Aufgaben',admin:'Admin',more:'Mehr'}[view];
+  syncFilters();
+}
+function syncFilters() {
+  const visible=['today','week','tasks'].includes(currentView), filter=currentView==='tasks'?taskFilter:calendarFilter;
+  $('#calendarFilters').classList.toggle('hidden',!visible);
+  $('#openFilter').classList.toggle('hidden',currentView!=='tasks');
+  $$('[data-filter]').forEach(button=>{const selected=button.dataset.filter===filter;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));});
 }
 async function loadMembership() {
   const request=++authNumber, userId=user?.id;
@@ -83,28 +91,36 @@ async function refreshAll() {
 }
 const person=id=>members.find(m=>m.user_id===id);
 const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️'}[type]||'📅');
-function card(event) {
-  const p=person(event.assignee_id)||person(event.transport_from_id)||person(event.transport_to_id), chips=[];
-  if(event.transport_to_id) chips.push('Bringt: '+esc(person(event.transport_to_id)?.display_name||'Unbekannt'));
-  if(event.transport_from_id) chips.push('Holt: '+esc(person(event.transport_from_id)?.display_name||'Unbekannt'));
-  if(event.assignee_id) chips.push('Zuständig: '+esc(person(event.assignee_id)?.display_name||'Unbekannt'));
-  return '<article class="event-card" tabindex="0" role="button" data-id="'+esc(event.id)+'" style="--person:'+safeColor(p?.color)+'"><small>'+
-    typeIcon(event.event_type)+' '+eventTime(event)+'</small><h3>'+esc(event.title)+'</h3>'+
-    (event.location?'<div>'+esc(event.location)+'</div>':'')+'<div class="chips">'+
-    chips.map(x=>'<span class="chip">'+x+'</span>').join('')+
-    (event.reminders||[]).map(x=>'<span class="chip">🔔 '+Number(x)+' Min. (vorbereitet)</span>').join('')+'</div></article>';
+function card(event, {mine=false, task=false}={}) {
+  const p=(assignedTo(event,user?.id)?person(user.id):null)||person(event.assignee_id)||person(event.transport_from_id)||person(event.transport_to_id), chips=[];
+  if(event.transport_to_id&&(!mine||event.transport_to_id!==user?.id)) chips.push('Bringt: '+esc(person(event.transport_to_id)?.display_name||'Unbekannt'));
+  if(event.transport_from_id&&(!mine||event.transport_from_id!==user?.id)) chips.push('Holt: '+esc(person(event.transport_from_id)?.display_name||'Unbekannt'));
+  if(event.assignee_id&&(!mine||event.assignee_id!==user?.id)) chips.push('Zuständig: '+esc(person(event.assignee_id)?.display_name||'Unbekannt'));
+  const open=openAssignment(event), roles=eventRoles(event,mine?user?.id:undefined);
+  return '<article class="event-card" data-id="'+esc(event.id)+'" style="--person:'+safeColor(p?.color)+'"><details'+(expandedEvents.has(event.id)?' open':'')+'><summary><span class="event-heading"><small>'+
+    typeIcon(event.event_type)+' '+eventTime(event)+'</small><strong>'+esc(event.title)+'</strong>'+
+    ((task||mine)&&roles.length?'<span class="event-role">'+roles.map(esc).join(' · ')+'</span>':'')+
+    (open?'<span class="assignment-open">'+esc(open)+'</span>':'')+'</span><span class="expand-icon" aria-hidden="true">⌄</span><span class="visually-hidden">Details ein- oder ausklappen</span></summary><div class="event-details">'+
+    (event.location?'<p>Ort: '+esc(event.location)+'</p>':'')+
+    (event.end_time&&!event.all_day?'<p>Ende: '+esc(event.end_time.slice(0,5))+'</p>':'')+
+    '<div class="chips">'+chips.map(x=>'<span class="chip">'+x+'</span>').join('')+
+    (event.reminders||[]).map(x=>'<span class="chip">🔔 '+Number(x)+' Min. (vorbereitet)</span>').join('')+'</div>'+
+    (event.notes?'<p class="event-notes">'+esc(event.notes)+'</p>':'')+
+    (event.series_id?'<p class="small">Wiederkehrender Termin</p>':'')+
+    '<button type="button" class="secondary" data-edit-event="'+esc(event.id)+'">'+(canEdit(event)?'Bearbeiten':'Termin ansehen')+'</button></div></details></article>';
 }
 function bindCards() {
-  $$('.event-card').forEach(element=>{
-    const open=()=>openEvent(events.find(e=>e.id===element.dataset.id));
-    element.onclick=open; element.onkeydown=e=>{if(e.key==='Enter'||e.key===' ') { e.preventDefault(); open(); }};
-  });
+  $$('.event-card details').forEach(element=>element.ontoggle=()=>{const id=element.closest('.event-card').dataset.id;if(element.open) expandedEvents.add(id); else expandedEvents.delete(id);});
+  $$('[data-edit-event]').forEach(button=>button.onclick=()=>{const event=events.find(e=>e.id===button.dataset.editEvent);if(event)openEvent(event);});
 }
 function renderToday() {
-  const list=events.filter(e=>e.event_date===localDate()), next=nextEvent(list);
-  $('#todayList').innerHTML=list.length?list.map(card).join(''):'<div class="empty">Heute ist nichts eingetragen.</div>';
-  $('#nextTask').innerHTML=next?'<small>NÄCHSTER TERMIN</small><h2>'+esc(next.title)+'</h2><div>'+eventTime(next)+' · '+esc(person(next.assignee_id)?.display_name||'noch ungeklärt')+'</div>':
+  const today=localDate(), filtered=filterEvents(events,calendarFilter,user?.id), list=filtered.filter(e=>e.event_date===today), next=nextEvent(list), mine=calendarFilter==='mine';
+  $('#todayList').innerHTML=list.length?list.map(e=>card(e,{mine})).join(''):'<div class="empty">'+(mine?'Heute sind keine Termine für dich eingetragen.':'Heute ist nichts eingetragen.')+'</div>';
+  $('#nextTask').innerHTML=next?'<small>NÄCHSTER TERMIN</small><h2>'+esc(next.title)+'</h2><div>'+eventTime(next)+(eventRoles(next,mine?user?.id:undefined).length?' · '+eventRoles(next,mine?user?.id:undefined).map(esc).join(' · '):'')+'</div>':
     '<small>HEUTE</small><h2>Keine weiteren zeitgebundenen Termine</h2>';
+  const upcoming=filtered.filter(e=>e.event_date>today&&e.event_date<=localDate(addDays(new Date(),120)));
+  $('#upcomingList').innerHTML=upcoming.length?groupedCards(upcoming.slice(0,upcomingLimit),{mine}):'<div class="empty">Keine kommenden Termine'+(mine?' für dich':'')+'.</div>';
+  $('#moreUpcoming').classList.toggle('hidden',upcoming.length<=upcomingLimit);
   bindCards();
 }
 function renderWeek() {
@@ -112,19 +128,20 @@ function renderWeek() {
   $('#weekRange').textContent=start.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+'–'+end.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
   let html='';
   for(let day=new Date(start);day<=end;day=addDays(day,1)) {
-    const list=events.filter(e=>e.event_date===localDate(day));
+    const list=filterEvents(events.filter(e=>e.event_date===localDate(day)),calendarFilter,user?.id);
     html+='<h3>'+day.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})+'</h3>'+
-      (list.length?list.map(card).join(''):'<div class="empty">Keine Termine</div>');
+      (list.length?list.map(e=>card(e,{mine:calendarFilter==='mine'})).join(''):'<div class="empty">Keine Termine'+(calendarFilter==='mine'?' für dich':'')+'</div>');
   }
   $('#weekList').innerHTML=html; bindCards();
 }
 function renderTasks() {
   const today=localDate(), end=localDate(addDays(new Date(),120));
-  let list=events.filter(e=>e.event_date>=today&&e.event_date<=end&&['transport','care','bedtime'].includes(e.event_type));
-  if(taskFilter==='mine') list=list.filter(e=>[e.assignee_id,e.transport_to_id,e.transport_from_id].includes(user.id));
-  if(taskFilter==='open') list=list.filter(e=>!e.assignee_id&&!e.transport_to_id&&!e.transport_from_id);
-  $('#tasksList').innerHTML=list.length?list.slice(0,taskLimit).map(e=>'<h4>'+dateAtNoon(e.event_date).toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'})+'</h4>'+card(e)).join(''):'<div class="empty">Keine passenden Aufgaben.</div>';
+  const list=filterEvents(events.filter(e=>e.event_date>=today&&e.event_date<=end&&isTask(e)),taskFilter,user?.id);
+  $('#tasksList').innerHTML=list.length?groupedCards(list.slice(0,taskLimit),{mine:taskFilter==='mine',task:true}):'<div class="empty">Keine passenden Aufgaben.</div>';
   $('#moreTasks').classList.toggle('hidden',list.length<=taskLimit); bindCards();
+}
+function groupedCards(list,options) {
+  let date='';return list.map(event=>{const heading=event.event_date!==date?'<h3>'+dateAtNoon(event.event_date).toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'})+'</h3>':'';date=event.event_date;return heading+card(event,options);}).join('');
 }
 function fillPeople() {
   const opts='<option value="">— ungeklärt —</option>'+members.map(m=>'<option value="'+esc(m.user_id)+'">'+esc(m.display_name)+'</option>').join('');
@@ -353,7 +370,8 @@ function bindUI() {
     finally { if($('#scopeDialog').open) $$('#scopeDialog [data-scope]').forEach(x=>x.disabled=!admin()&&['following','series'].includes(x.dataset.scope)); }
     });
   });
-  $$('[data-filter]').forEach(b=>b.onclick=()=>{taskFilter=b.dataset.filter;taskLimit=50;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderTasks();});
+  $$('[data-filter]').forEach(b=>b.onclick=()=>{if(b.dataset.filter==='open') taskFilter='open';else calendarFilter=taskFilter=b.dataset.filter;taskLimit=50;upcomingLimit=5;syncFilters();renderToday();renderWeek();renderTasks();});
+  $('#moreUpcoming').onclick=()=>{upcomingLimit+=10;renderToday();};
   $('#moreTasks').onclick=()=>{taskLimit+=50;renderTasks();};
   $$('#moreView [data-action]').forEach(b=>b.onclick=()=>openSettings(b.dataset.action));
 }
