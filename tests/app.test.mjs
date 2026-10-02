@@ -5,6 +5,7 @@ import {JSDOM} from 'jsdom';
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const app=readFileSync(new URL('../app.js',import.meta.url),'utf8').replace(/^import .*$/gm,'');
 import * as utils from '../calendar-utils.js';
+import {mountProjectList} from '../project-list.js';
 function fixture({rows=[]}={}) {
   const dom=new JSDOM(html,{url:'https://vbcoco.github.io/Famkal/',runScripts:'outside-only'});
   const w=dom.window,calls=[];
@@ -15,7 +16,7 @@ function fixture({rows=[]}={}) {
     return q;
   },rpc:async()=>({data:null,error:null})};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
-  Object.assign(w,{...utils,esc:utils.escapeHtml,createClient:()=>sb});
+  Object.assign(w,{...utils,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
   w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={openEvent,payload,card,askScope,setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
@@ -26,6 +27,17 @@ test('event editor preserves zero-minute default and all-day clears payload time
     assert.equal(f.w.document.querySelector('#reminders input').value,'0');
     f.w.document.querySelector('#startTime').value='14:00';f.w.document.querySelector('#allDay').value='true';
     assert.equal(f.w.testApp.payload().start_time,null);
+  }finally{f.close();}
+});
+test('profile opens the read-only project list',async()=>{
+  const f=fixture();try{
+    f.w.document.querySelector('#avatar').click();
+    assert.ok(f.w.document.querySelector('#showProject'));
+    f.w.document.querySelector('#showProject').click();
+    await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(f.w.document.querySelector('#settingsHeading').textContent,'Projekt & offene Punkte');
+    assert.ok(f.calls.some(c=>c.table==='project_items'));
+    assert.equal(f.w.document.querySelector('#settingsContent input'),null);
   }finally{f.close();}
 });
 test('cancel closes series scope without submitting an action',async()=>{

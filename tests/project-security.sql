@@ -1,0 +1,31 @@
+begin;
+do $$
+declare f uuid; u uuid; total integer; h bigint; before_row jsonb;
+begin
+ select family_id,user_id into f,u from public.family_members where role='owner' limit 1;
+ if f is null then raise exception 'Existing owner fixture required'; end if;
+ select count(*) into total from public.project_items where family_id=f;
+ if total<>6 then raise exception 'Initial backlog missing'; end if;
+ select to_jsonb(i) into before_row from public.project_items i where family_id=f and item_no=1;
+ update public.project_items set status='planned',change_source='chat',change_note='Transactional audit test' where family_id=f and item_no=1;
+ if not exists(select 1 from public.project_item_history where family_id=f and change_note='Transactional audit test' and old_values=before_row and new_values->>'status'='planned') then raise exception 'Audit snapshot failed'; end if;
+ begin update public.project_item_history set change_note='tampered' where family_id=f; raise exception 'History mutable'; exception when raise_exception then if SQLERRM='History mutable' then raise; end if; end;
+ begin delete from public.project_items where family_id=f and item_no=1; raise exception 'Item deletable'; exception when raise_exception then if SQLERRM='Item deletable' then raise; end if; end;
+ perform set_config('request.jwt.claim.sub',u::text,true);
+ execute 'set local role authenticated';
+ if (select count(*) from public.project_items where family_id=f)<>total then raise exception 'Owner cannot read backlog'; end if;
+ if (select count(*) from public.project_releases where family_id=f)<>2 then raise exception 'Owner cannot read releases'; end if;
+ if (select count(*) from public.project_item_history where family_id=f)<8 then raise exception 'Owner cannot read history'; end if;
+ if has_table_privilege('authenticated','public.project_items','INSERT,UPDATE,DELETE') or has_table_privilege('authenticated','public.project_releases','INSERT,UPDATE,DELETE') or has_table_privilege('authenticated','public.project_item_history','INSERT,UPDATE,DELETE') then raise exception 'Browser writes granted'; end if;
+ begin update public.project_items set title='unauthorized'; raise exception 'Browser changed backlog'; exception when insufficient_privilege then null; end;
+ execute 'reset role';
+ perform set_config('request.jwt.claim.sub',gen_random_uuid()::text,true);
+ execute 'set local role authenticated';
+ if (select count(*) from public.project_items)<>0 or (select count(*) from public.project_releases)<>0 or (select count(*) from public.project_item_history)<>0 then raise exception 'Family data leaked'; end if;
+ execute 'reset role';
+ execute 'set local role anon';
+ begin perform count(*) from public.project_items; raise exception 'Anonymous read allowed'; exception when insufficient_privilege then null; end;
+ execute 'reset role';
+end $$;
+select 'Project audit, read permissions, blocked writes and family isolation passed' as result;
+rollback;

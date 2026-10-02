@@ -1,4 +1,5 @@
 import { createClient } from './vendor/supabase.js';
+import { mountProjectList } from './project-list.js';
 import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent } from './calendar-utils.js';
 
 const cfg = window.APP_CONFIG || {};
@@ -247,7 +248,12 @@ async function updateProfile(data) {
 function openSettings(action) {
   if(action==='install') return toast('iPhone: In Safari öffnen → Teilen → Zum Home-Bildschirm.');
   $('#settingsDialog').showModal();
-  if(action==='notifications') {
+  if(action==='project') {
+    $('#settingsHeading').textContent='Projekt & offene Punkte';
+    const root=document.createElement('div'), family=member.family_id, userId=user.id;
+    $('#settingsContent').replaceChildren(root);
+    mountProjectList(root,sb,family,()=>member?.family_id===family&&user?.id===userId&&root.parentNode===$('#settingsContent')&&$('#settingsDialog').open);
+  } else if(action==='notifications') {
     $('#settingsHeading').textContent='Benachrichtigungen';
     $('#settingsContent').innerHTML='<p>Push ist noch nicht eingerichtet. Erinnerungszeiten und Einstellungen werden gespeichert, aber es werden noch keine Nachrichten versendet.</p>'+
       '<label>Standard-Vorlauf in Minuten<input id="defaultReminder" type="number" min="0" max="10080" step="1" value="'+member.default_reminder_minutes+'"></label>'+
@@ -261,7 +267,8 @@ function openSettings(action) {
     });
   } else {
     $('#settingsHeading').textContent='Mein Profil';
-    $('#settingsContent').innerHTML='<label>Name<input id="profileName" maxlength="80" value="'+esc(member.display_name)+'"></label><label>Farbe<input id="profileColor" type="color" value="'+safeColor(member.color)+'"></label><button id="saveProfile" class="primary">Speichern</button>';
+    $('#settingsContent').innerHTML='<label>Name<input id="profileName" maxlength="80" value="'+esc(member.display_name)+'"></label><label>Farbe<input id="profileColor" type="color" value="'+safeColor(member.color)+'"></label><button id="saveProfile" class="primary">Speichern</button><hr><button id="showProject" type="button">Projekt & offene Punkte</button>';
+    $('#showProject').onclick=()=>openSettings('project');
     $('#saveProfile').onclick=()=>busy($('#saveProfile'),async()=>{
       await updateProfile({display_name:$('#profileName').value.trim(),color:$('#profileColor').value});
       $('#settingsDialog').close(); toast('Gespeichert');

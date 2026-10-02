@@ -1,4 +1,16 @@
-# Leonhards Familienkalender — Famkal 1.1.0
+# Leonhards Familienkalender — Famkal 1.2.0
+
+## Projektliste (1.2.0)
+
+Im Profil (Avatar → **Projekt & offene Punkte**) stehen offene und abgeschlossene Punkte, Prioritäten, Versionen und die Änderungshistorie. Familienmitglieder haben ausschließlich Lesezugriff. Pflege erfolgt über den autorisierten Chat und die Supabase-Verbindung **RC Apple** zum bestehenden Projekt `fbjvlkgvsatnjrtoigvt`.
+
+Die Tabellen `project_items`, `project_releases` und `project_item_history` sind durch RLS auf die eigene Familie beschränkt. Keine Schreibrechte für Browserrollen; keine neuen schreibenden RPCs. Trigger protokollieren Aufnahme und Änderungen automatisch mit alten/neuen Werten, Datenbankakteur, Quelle und Kommentar. Punkte und Historieneinträge werden nicht gelöscht. Die Historie schützt vor gewöhnlichem Überschreiben, ist aber gegenüber privilegierten Datenbankadministratoren nicht manipulationssicher.
+
+### Pflege über den Chat
+
+Vor Änderungen die aktuelle Liste aus Supabase lesen. Neue Wünsche nur sammeln, bis Umsetzung ausdrücklich beauftragt wird. Bestehende Nummern bleiben stabil; `change_source='chat'` und ein konkreter `change_note` gehören zu jeder Änderung. Status: `collected`, `planned`, `in_progress`, `implemented`, `verified`, `discarded`. Erledigte Punkte erhalten `completed_version`; Wiederöffnen entfernt diese Zuordnung. Versionen vor der Zuordnung anlegen. Bei neuen Punkten die Familie in einer Transaktion sperren (`SELECT ... FROM public.families WHERE id=... FOR UPDATE`), dann die nächste familienbezogene `item_no` bestimmen. Keine Anmeldedaten oder Familieninhalte in Projektbeschreibungen aufnehmen.
+
+Die ersten sechs Punkte wurden aus dem Chat übernommen. Version 1.1.0 ist nachträglich dokumentiert; die Historie beginnt mit diesem Import. Die Migration `supabase/migrations/20261002055653_project_tracker_v120.sql` erweitert das vorhandene Backend additiv. Sie ersetzt keine Kalenderdatenbank. Nach Anwendung: `tests/project-security.sql` ausführen; Teständerungen werden zurückgerollt.
 
 Bestehendes Projekt, bereinigt am 01.10.2026.
 
