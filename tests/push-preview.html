@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Famkal 1.6.0 – Benachrichtigungen Vorschau</title>
+<link rel="stylesheet" href="../styles.css">
+<main style="max-width:600px;margin:16px auto;padding:16px">
+ <h1>Benachrichtigungen · 1.6.0</h1>
+ <p>Darstellungsprüfung ohne Familienkonto. Diese Vorschau registriert kein Gerät im Backend und sendet keine Nachrichten.</p>
+ <div id="preview"></div>
+</main>
+<script src="../config.js"></script>
+<script type="module">
+import {mountPushSettings} from '../push-settings.js';
+if('serviceWorker' in navigator)navigator.serviceWorker.register('../service-worker.js');
+const mock={from:()=>({select(){return this;},eq(){return this;},maybeSingle:async()=>({data:null,error:null})}),rpc:async()=>({data:null,error:{message:'Vorschau: keine Geräteanmeldung'}}),functions:{invoke:async()=>({error:{message:'Vorschau: kein Versand'}})}};
+const root=document.getElementById('preview');
+mountPushSettings(root,mock,'preview',window.APP_CONFIG.VAPID_PUBLIC_KEY);
+root.querySelector('details').open=true;
+</script>
+</html>

@@ -1,4 +1,52 @@
-# Leonhards Familienkalender — Famkal 1.5.1
+# Leonhards Familienkalender — Famkal 1.6.0
+
+## Echte Push-Erinnerungen (1.6.0)
+
+Unter Mehr → Benachrichtigungen werden Anleitung, Status dieses Geräts,
+Aktivierung, Testnachricht und Deaktivierung angezeigt. Auf dem iPhone Famkal
+zuerst zum Home-Bildschirm hinzufügen, dann über das Symbol öffnen und anmelden.
+„Push-Erinnerungen aktivieren“ antippen und die iPhone-Abfrage mit „Erlauben“
+bestätigen. Jede Person aktiviert jedes eigene Gerät selbst; ChatGPT ist dafür
+nicht nötig. Nach Ablehnung sind die iPhone-Mitteilungseinstellungen zuständig.
+
+Supabase Cron ruft `send-reminders` jede Minute über pg_net auf. VAPID- und
+Cron-Zugangsdaten liegen verschlüsselt in Vault. Der Worker verwendet eine
+serverseitig geprüfte Cron-Berechtigung oder bei Testnachrichten Supabase Auth
+plus eigene Gerätezuordnung und ein Testlimit von einer Minute. Direkte
+Geräteänderungen aus dem Browser sind gesperrt; registrieren/deaktivieren sind
+geprüfte RPCs. Nur zugelassene Push-Provider erhalten HTTPS-Anfragen, ohne
+Weiterleitungen. Geräteendpunkte und Schlüssel werden weder geloggt noch
+anderen Familienmitgliedern angezeigt. Bis zu zehn aktive Geräte je Person.
+
+Empfänger sind die echten Mitglieder mit Bringt/Holt/Zuständig, bei Alle alle
+echten Familienmitglieder. Mehrere Rollen ergeben je Gerät und Vorlauf nur eine
+Nachricht. Testmitglieder erhalten keine Nachrichten. Alle Serienvorkommen sind
+normale Termine; Absagen, veränderte Uhrzeiten/Vorläufe und entfernte Mitglieder
+werden vor dem Versand erneut geprüft. Deutsche Zeit inklusive Sommerzeit;
+ganztägige Termine haben als Erinnerungsbezug 09:00 Uhr. Termine ohne Uhrzeit,
+ohne zuständige Person oder ohne eingestellte Vorläufe erzeugen keinen Versand.
+
+Die Warteschlange verwendet eindeutige Versandaufträge und Claim-Leases mit
+höchstens drei Versuchen. Bereits erfolgreiche Sendungen werden nicht wiederholt;
+404/410 deaktiviert abgelaufene Geräte. Vorläufe werden höchstens zehn Minuten
+nachgeholt und nicht später als fünf Minuten nach Terminbeginn. Push-TTL ist
+entsprechend begrenzt. iOS, Fokus, Internet und Push-Provider bestimmen die
+Anzeige; die Annahme durch den Provider beweist noch keine Geräte-Zustellung.
+Bei einem Prozessabbruch zwischen Provider-Annahme und Datenbankbestätigung
+kann ein Wiederholungsversuch nötig werden; ein stabiler Notification-Tag/Topic
+fasst diese Nachricht am Gerät zusammen. Es wird keine absolute Exactly-once-
+Zustellung versprochen. Aufbewahrung der Versandhistorie: 30 Tage.
+
+Abmelden deaktiviert die aktuelle Geräteanmeldung und meldet sie beim Browser
+ab, soweit der Backend-Aufruf gelingt. Andere Geräte bleiben angemeldet.
+Bei Netzwerkfehlern bitte vor gemeinsam genutzten Geräten „Auf diesem Gerät
+deaktivieren“ erfolgreich ausführen. Das Antippen einer Erinnerung öffnet den
+betreffenden Termin nach Anmeldung und Prüfung der Familienzugehörigkeit.
+
+Erste Version sendet ausschließlich Terminerinnerungen. Neue Zuordnungen und
+Änderungsmitteilungen sind weiterhin als vorbereitet gekennzeichnet.
+Apple-Kalender-Abo/Widget und senkrechter Farbverlauf bleiben spätere Punkte.
+Die echte iPhone-Zustellung muss Robert nach Aktivierung selbst bestätigen.
 
 ## Personenfarben korrigiert (1.5.1)
 
@@ -230,9 +278,9 @@ Erinnerungsminuten (0 bis 10080, maximal zehn Angaben) und Benachrichtigungswün
 werden gespeichert. **Es findet noch kein Push-, E-Mail- oder Hintergrundversand
 statt.** Die Oberfläche weist darauf hin; sie meldet keine falsche Aktivierung.
 
-Für einen späteren Ausbau fehlen noch VAPID-Schlüssel, eine abgesicherte
-send-reminders-Edge-Function, ein Zeitplan und Zustelltests einschließlich iPhone.
-Private VAPID-/Cron-Schlüssel und service_role dürfen nie ins Repository gelangen.
+Push-Versand ist ab 1.6.0 eingerichtet. Die VAPID- und Cron-Schlüssel liegen
+verschlüsselt in Supabase Vault; nur der öffentliche Schlüssel steht in config.js.
+Private Schlüssel und service_role dürfen niemals ins Repository gelangen.
 
 ## Datenbank / Migration
 

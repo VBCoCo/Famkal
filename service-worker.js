@@ -1,5 +1,5 @@
-const CACHE='famkal-shell-1.5.1';
-const SHELL=['./','./index.html','./styles.css','./app.js','./access-links.js','./project-list.js','./calendar-utils.js','./vendor/supabase.js','./config.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='famkal-shell-1.6.0';
+const SHELL=['./','./index.html','./styles.css','./app.js','./push-settings.js','./access-links.js','./project-list.js','./calendar-utils.js','./vendor/supabase.js','./config.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL))));
 self.addEventListener('message',event=>{if(event.data?.type==='SKIP_WAITING')self.skipWaiting();});
 self.addEventListener('activate',event=>event.waitUntil((async()=>{
@@ -24,7 +24,7 @@ self.addEventListener('fetch',event=>{
 self.addEventListener('push',event=>{
   let data={title:'Familienkalender',body:'Neue Erinnerung'};
   try { data={...data,...event.data?.json()}; } catch { /* Invalid payload: generic notification only. */ }
-  event.waitUntil(self.registration.showNotification(String(data.title),{body:String(data.body),icon:'./icons/icon-192.png',badge:'./icons/icon-192.png',data:{url:data.url||'./'}}));
+  event.waitUntil(self.registration.showNotification(String(data.title),{body:String(data.body),icon:'./icons/icon-192.png',badge:'./icons/icon-192.png',tag:typeof data.tag==='string'?data.tag.slice(0,100):undefined,data:{url:data.url||'./'}}));
 });
 self.addEventListener('notificationclick',event=>{
   event.notification.close();

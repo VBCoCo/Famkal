@@ -17,3 +17,5 @@
               var(--assignment, #888888) border-box;
   box-shadow: 0 3px 12px #2c393314;
 }
+
+.push-actions{display:grid;gap:10px}.push-guide{margin:16px 0;padding:12px;background:#eef3f0;border-radius:12px}.push-guide summary{cursor:pointer;font-weight:650}.push-guide li{margin:10px 0}.push-guide p{font-size:.9rem}

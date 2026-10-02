@@ -1,3 +1,4 @@
+import { mountPushSettings, disablePushDevice } from './push-settings.js';
 import { createClient } from './vendor/supabase.js';
 import { mountProjectList } from './project-list.js';
 import { parseAccessLink, redeemAccessLink, requestAccessLink, requestRecoveryEmail } from './access-links.js';
@@ -67,7 +68,17 @@ async function loadMembership() {
   const data=check(await sb.from('family_members').select('*').eq('user_id',userId).maybeSingle());
   if(request!==authNumber||userId!==user?.id) return;
   if(!data) { member=null; show('onboarding'); return; }
-  member=data; show('app'); navigate(currentView); await refreshAll();
+  member=data; show('app'); navigate(currentView); await refreshAll(); await openNotificationEvent();
+}
+async function openNotificationEvent() {
+  const url=new URL(location.href),id=url.searchParams.get('event');
+  if(!id||!member||!user)return;
+  url.searchParams.delete('event');history.replaceState(null,'',url.pathname+url.search+url.hash);
+  if(!/^[a-f0-9-]{36}$/i.test(id))return;
+  const family=member.family_id,userId=user.id;
+  const event=events.find(e=>e.id===id)||check(await sb.from('events').select('*,assignments:event_assignments(role,member_user_id,test_member_id)').eq('id',id).eq('family_id',family).maybeSingle());
+  if(user?.id!==userId||member?.family_id!==family)return;
+  if(event)openEvent(event);else toast('Der Termin ist nicht mehr verfügbar.');
 }
 async function fetchEvents(start,end,family) {
   const all=[], pageSize=500;
@@ -112,7 +123,7 @@ function card(event, {mine=false, task=false, day=event.event_date}={}) {
     (event.location?'<p>Ort: '+esc(event.location)+'</p>':'')+
     (event.end_time&&!event.all_day?'<p>Ende: '+esc(event.end_time.slice(0,5))+'</p>':'')+
     '<div class="chips">'+chips.map(x=>'<span class="chip">'+x+'</span>').join('')+
-    (event.reminders||[]).map(x=>'<span class="chip">🔔 '+Number(x)+' Min. (vorbereitet)</span>').join('')+'</div>'+
+    (event.reminders||[]).map(x=>'<span class="chip">🔔 '+Number(x)+' Min. vor Beginn</span>').join('')+'</div>'+
     (event.notes?'<p class="event-notes">'+esc(event.notes)+'</p>':'')+
     (event.series_id?'<p class="small">Wiederkehrender Termin</p>':'')+
     (event.is_cancelled?((admin()||event.created_by===user?.id)?'<button type="button" class="secondary" data-restore-event="'+esc(event.id)+'">Wiederherstellen</button>':''):'<button type="button" class="secondary" data-edit-event="'+esc(event.id)+'">'+(canEdit(event)?'Bearbeiten':'Termin ansehen')+'</button>')+
@@ -330,10 +341,12 @@ function openSettings(action) {
     mountProjectList(root,sb,family,()=>member?.family_id===family&&user?.id===userId&&root.parentNode===$('#settingsContent')&&$('#settingsDialog').open);
   } else if(action==='notifications') {
     $('#settingsHeading').textContent='Benachrichtigungen';
-    $('#settingsContent').innerHTML='<p>Push ist noch nicht eingerichtet. Erinnerungszeiten und Einstellungen werden gespeichert, aber es werden noch keine Nachrichten versendet.</p>'+
+    $('#settingsContent').innerHTML='<div id="pushSettings"></div>'+
       '<label>Standard-Vorlauf in Minuten<input id="defaultReminder" type="number" min="0" max="10080" step="1" value="'+member.default_reminder_minutes+'"></label>'+
       '<label class="checkbox-label"><input id="notifyAssignments" type="checkbox" '+(member.notify_assignments?'checked':'')+'> Neue eigene Aufgaben melden (vorbereitet)</label>'+
       '<label class="checkbox-label"><input id="notifyChanges" type="checkbox" '+(member.notify_changes?'checked':'')+'> Änderungen melden (vorbereitet)</label><button id="saveNotify" class="primary">Einstellungen speichern</button>';
+    const pushRoot=$('#pushSettings'), pushUser=user.id;
+    mountPushSettings(pushRoot,sb,pushUser,cfg.VAPID_PUBLIC_KEY,()=>user?.id===pushUser&&pushRoot.parentNode===$('#settingsContent')&&$('#settingsDialog').open);
     $('#saveNotify').onclick=()=>busy($('#saveNotify'),async()=>{
       const minutes=Number($('#defaultReminder').value);
       if(!Number.isInteger(minutes)||minutes<0||minutes>10080) throw new Error('Bitte ganze Minuten von 0 bis 10080 eingeben');
@@ -388,7 +401,7 @@ function bindUI() {
   }); };
   $('#cancelPassword').onclick=()=>busy($('#cancelPassword'),async()=>{check(await sb.auth.signOut());accessLink=null;pendingFamilyCode=null;recovery=false;$('#passwordForm').reset();clearSession();history.replaceState(null,'',location.pathname);});
   $('#joinFamilyBtn').onclick=()=>busy($('#joinFamilyBtn'),async()=>{check(await sb.rpc('join_family',{p_code:$('#inviteCode').value.trim()}));await loadMembership();});
-  const logout=button=>busy(button,async()=>{check(await sb.auth.signOut());clearSession();});
+  const logout=button=>busy(button,async()=>{try{await disablePushDevice(sb);}catch{/* Sign-out still revokes the session if push cleanup fails. */}check(await sb.auth.signOut());clearSession();});
   $('#logout').onclick=()=>logout($('#logout')); $('#onboardingLogout').onclick=()=>logout($('#onboardingLogout'));
   $$('nav [data-view]').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
   $('#add').onclick=()=>openEvent(); $('#avatar').onclick=()=>openSettings('profile');

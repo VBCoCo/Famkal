@@ -1,0 +1,53 @@
+-- Run within BEGIN / ROLLBACK. No real device or family receives a notification.
+create temp table push_ids as select gen_random_uuid() owner_id,gen_random_uuid() member_id,gen_random_uuid() outsider_id,gen_random_uuid() family_id,gen_random_uuid() other_family;
+insert into auth.users(id,email) select owner_id,'push-owner-'||owner_id||'@example.invalid' from push_ids union all select member_id,'push-member-'||member_id||'@example.invalid' from push_ids union all select outsider_id,'push-outside-'||outsider_id||'@example.invalid' from push_ids;
+insert into public.families(id,name) select family_id,'Push transactional test' from push_ids union all select other_family,'Push outsider' from push_ids;
+insert into public.family_members(family_id,user_id,display_name,role) select family_id,owner_id,'Owner','owner' from push_ids union all select family_id,member_id,'Member','member' from push_ids union all select other_family,outsider_id,'Outsider','owner' from push_ids;
+grant select on push_ids to authenticated;
+set local role authenticated;
+do $$ declare f record; subscription jsonb; sub uuid; bad bool; begin
+ select * into f from push_ids;perform set_config('request.jwt.claim.sub',f.owner_id::text,true);
+ subscription:=jsonb_build_object('endpoint','https://web.push.apple.com/push-test-'||f.owner_id,'keys',jsonb_build_object('p256dh','B'||repeat('a',86),'auth',repeat('b',22)));
+ sub:=public.register_push(subscription,'test');
+ if public.register_push(subscription,'test')<>sub then raise exception 'Registration duplicates endpoint';end if;
+ bad:=false;begin perform public.register_push(subscription||jsonb_build_object('endpoint','https://127.0.0.1/private'),'test');exception when others then bad:=true;end;if not bad then raise exception 'SSRF registration accepted';end if;
+ bad:=false;begin update public.push_subscriptions set user_id=f.member_id where id=sub;exception when insufficient_privilege then bad:=true;end;if not bad then raise exception 'Direct device write allowed';end if;
+ bad:=false;begin perform public.push_config();exception when insufficient_privilege then bad:=true;end;if not bad then raise exception 'Secrets readable by user';end if;
+ perform set_config('request.jwt.claim.sub',f.outsider_id::text,true);
+ if exists(select 1 from public.push_subscriptions where id=sub)then raise exception 'Device RLS leaks';end if;
+ perform public.disable_push(subscription->>'endpoint');
+end $$;
+reset role;
+do $$ declare f record; e uuid; test_person uuid; sub uuid; ticket jsonb; jobs jsonb; startstamp timestamptz:=date_trunc('minute',now())+interval '5 minutes'; begin
+ select * into f from push_ids;
+ select id into sub from public.push_subscriptions where user_id=f.owner_id;
+ if not (select is_active from public.push_subscriptions where id=sub)then raise exception 'Outsider disabled device';end if;
+ insert into public.push_subscriptions(user_id,endpoint,subscription) values(f.member_id,'https://web.push.apple.com/member-'||f.member_id,jsonb_build_object('endpoint','https://web.push.apple.com/member-'||f.member_id,'keys',jsonb_build_object('p256dh','B'||repeat('a',86),'auth',repeat('b',22))));
+ insert into public.test_members(family_id,display_name,color) values(f.family_id,'Pink','#ff69b4') returning id into test_person;
+ insert into public.events(family_id,event_type,title,event_date,start_time,assignee_all,reminders,created_by) values(f.family_id,'bedtime','Multiple',(startstamp at time zone 'Europe/Berlin')::date,(startstamp at time zone 'Europe/Berlin')::time,true,array[5,5],f.owner_id) returning id into e;
+ insert into public.event_assignments(event_id,family_id,role,test_member_id) values(e,f.family_id,'assignee',test_person);
+ if (select count(*) from private.push_eligible(now()) where event_id=e)<>2 then raise exception 'All recipients not deduplicated or fake gets push';end if;
+ jobs:=private.claim_push();if jsonb_array_length(jobs)<>2 then raise exception 'Queue count';end if;
+ if jsonb_array_length(private.claim_push())<>0 then raise exception 'Concurrent claim duplicate';end if;
+ ticket:=jobs->0;
+ if private.prepare_push((ticket->>'id')::uuid,(ticket->>'token')::uuid) is null then raise exception 'Eligible job absent';end if;
+ update public.events set is_cancelled=true where id=e;
+ if private.prepare_push((ticket->>'id')::uuid,(ticket->>'token')::uuid) is not null then raise exception 'Cancelled event still sends';end if;
+ update public.events set is_cancelled=false,start_time=start_time+interval '1 hour' where id=e;
+ if private.prepare_push((ticket->>'id')::uuid,(ticket->>'token')::uuid) is not null then raise exception 'Moved event still sends old reminder';end if;
+ update public.events set start_time=(startstamp at time zone 'Europe/Berlin')::time where id=e;
+ perform private.finish_push((ticket->>'id')::uuid,(ticket->>'token')::uuid,201);
+ if not exists(select 1 from private.push_deliveries where id=(ticket->>'id')::uuid and state='sent')then raise exception 'Success not recorded';end if;
+ ticket:=jobs->1;perform private.finish_push((ticket->>'id')::uuid,(ticket->>'token')::uuid,410);
+ if (select is_active from public.push_subscriptions where id=(select subscription_id from private.push_deliveries where id=(ticket->>'id')::uuid))then raise exception 'Expired endpoint still active';end if;
+ if jsonb_array_length(private.claim_push())<>0 then raise exception 'Sent reminder resent';end if;
+ if private.claim_push_test(sub,f.outsider_id) is not null then raise exception 'Foreign test sent';end if;
+ update public.push_subscriptions set is_active=true where id=sub;
+ if private.claim_push_test(sub,f.owner_id) is null then raise exception 'Own test denied';end if;
+ if private.claim_push_test(sub,f.owner_id) is not null then raise exception 'Test rate limit absent';end if;
+ if exists(select 1 from private.push_eligible(now()+interval '2 hours') where event_id=e)then raise exception 'Old reminder replayed';end if;
+ -- All-day residual time is ignored; DST uses Europe/Berlin.
+ update public.events set all_day=true,event_date='2026-10-25',start_time='20:00',reminders=array[0] where id=e;
+ if not exists(select 1 from private.push_eligible('2026-10-25T08:00:30Z') where event_id=e and start_at='2026-10-25T08:00:00Z')then raise exception 'All-day/DST hour incorrect';end if;
+ if has_function_privilege('anon','public.claim_push()','EXECUTE') or has_function_privilege('authenticated','public.prepare_push(uuid,uuid)','EXECUTE') then raise exception 'Backend APIs exposed';end if;
+end $$;

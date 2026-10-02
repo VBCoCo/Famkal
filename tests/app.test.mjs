@@ -6,6 +6,7 @@ const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const app=readFileSync(new URL('../app.js',import.meta.url),'utf8').replace(/^import .*$/gm,'');
 import * as utils from '../calendar-utils.js';
 import {mountProjectList} from '../project-list.js';
+import {mountPushSettings,disablePushDevice} from '../push-settings.js';
 import * as links from '../access-links.js';
 function fixture({rows=[],rpcResult=null,rpcError=null}={}) {
   const dom=new JSDOM(html,{url:'https://vbcoco.github.io/Famkal/',runScripts:'outside-only'});
@@ -17,8 +18,8 @@ function fixture({rows=[],rpcResult=null,rpcError=null}={}) {
     return q;
   },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:rpcResult,error:rpcError};}};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
-  Object.assign(w,{...utils,...links,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
-  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
+  Object.assign(w,{...utils,...links,mountPushSettings,disablePushDevice,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
+  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openSettings,openNotificationEvent,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
@@ -255,5 +256,21 @@ test('session cleanup clears upcoming items, filter and private content',()=>{
   f.w.testApp.setEvents([makeEvent('private',{assignee_id:'u1'})]);f.w.document.querySelector('[data-filter=mine]').click();
   f.w.testApp.clearSession();assert.equal(f.w.document.querySelector('#upcomingList').textContent,'');
   f.w.testApp.setState();f.w.testApp.navigate('today');assert.equal(f.w.document.querySelector('[data-filter=all]').getAttribute('aria-pressed'),'true');
+ }finally{f.close();}
+});
+
+test('notifications settings include device controls and self-service iPhone instructions',()=>{
+ const f=fixture();try{
+  f.w.testApp.openSettings('notifications');
+  const root=f.w.document.querySelector('#pushSettings');
+  assert.ok(root.querySelector('#enablePush'));assert.ok(root.querySelector('#testPush'));assert.ok(root.querySelector('#disablePush'));
+  assert.match(root.textContent,/ChatGPT ist dafür nicht erforderlich/);assert.match(root.textContent,/iPhone-Abfrage/);assert.match(root.textContent,/09:00/);
+ }finally{f.close();}
+});
+test('notification deep link opens its event after membership and removes the URL parameter',async()=>{
+ const f=fixture();try{
+  const id='11111111-1111-4111-8111-111111111111';
+  f.dom.reconfigure({url:'https://vbcoco.github.io/Famkal/?event='+id});f.w.testApp.setEvents([makeEvent(id,{title:'Push target',assignee_id:'u1'})]);
+  await f.w.testApp.openNotificationEvent();assert.equal(f.w.document.querySelector('#eventDialog').open,true);assert.equal(f.w.document.querySelector('#eventTitle').value,'Push target');assert.equal(new URL(f.w.location.href).searchParams.has('event'),false);
  }finally{f.close();}
 });
