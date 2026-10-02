@@ -1,11 +1,13 @@
 import { createClient } from './vendor/supabase.js';
 import { mountProjectList } from './project-list.js';
+import { parseAccessLink, redeemAccessLink, requestAccessLink } from './access-links.js';
 import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent } from './calendar-utils.js';
 
 const cfg = window.APP_CONFIG || {};
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
-let sb, signup=false, user=null, member=null, members=[], events=[], series=[], weekOffset=0, taskFilter='mine', taskLimit=50;
+let sb, user=null, member=null, members=[], events=[], series=[], weekOffset=0, taskFilter='mine', taskLimit=50;
+let accessLink=null, pendingFamilyCode=null;
 let refreshNumber=0, authNumber=0, pendingScope=null, recovery=false, initialized=false, currentView='today', toastTimer;
 const admin = () => ['owner','admin'].includes(member?.role);
 const toast = message => {
@@ -20,6 +22,7 @@ function clearSession() {
   authNumber++; refreshNumber++; user=null; member=null; members=[]; events=[]; series=[];
   weekOffset=0; currentView='today'; pendingScope=null;
   $$('dialog[open]').forEach(d=>d.close());
+  $('#settingsContent').replaceChildren(); $('#inviteLinkBox').classList.add('hidden');
   ['todayList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
   show('auth');
 }
@@ -218,15 +221,30 @@ async function deleteEvent() {
 }
 function renderAdmin() {
   $('#adminContent').innerHTML='<h2>Administration</h2><div class="admin-grid"><div class="card"><h3>Familienmitglieder</h3><div id="memberList"></div></div>'+
-    '<div class="card"><h3>Mitglied einladen</h3><p>Der Code gilt sieben Tage und nur für die angegebene E-Mail-Adresse.</p><label>E-Mail der Person<input id="inviteEmail" type="email" maxlength="254" placeholder="oma@example.de"></label><button id="makeInvite" class="primary">Einladungscode erzeugen</button><div id="inviteResult"></div></div></div>';
+    '<div class="card"><h3>Mitglied einladen</h3><p>Einmaliger Einladungslink, maximal eine Stunde gültig. Du gibst ihn persönlich weiter; es wird keine E-Mail versendet.</p><label>E-Mail der Person<input id="inviteEmail" type="email" maxlength="254" placeholder="oma@example.de"></label><button id="makeInvite" class="primary">Einladungslink erstellen</button><div id="inviteResult"></div></div></div>';
   $('#memberList').innerHTML=members.map(m=>'<div class="member"><span class="dot" style="background:'+safeColor(m.color)+'"></span><main><b>'+esc(m.display_name)+'</b><small>'+esc({owner:'Eigentümer',admin:'Administrator',member:'Mitglied'}[m.role])+'</small></main>'+
-    (member.role==='owner'||m.role==='member'?'<button data-edit-member="'+esc(m.user_id)+'">Bearbeiten</button>':'')+'</div>').join('');
+    (member.role==='owner'||m.role==='member'?'<button data-edit-member="'+esc(m.user_id)+'">Bearbeiten</button>':'')+
+    ((m.role==='member'||m.user_id===user.id||(member.role==='owner'&&m.role==='admin'))?'<button data-reset-member="'+esc(m.user_id)+'">Reset-Link</button>':'')+'</div>').join('');
   $('#makeInvite').onclick=()=>busy($('#makeInvite'),async()=>{
     if(!$('#inviteEmail').reportValidity()||!$('#inviteEmail').value.trim()) throw new Error('Bitte eine gültige E-Mail eingeben');
-    const email=$('#inviteEmail').value.trim(), code=check(await sb.rpc('create_family_invitation',{p_email:email}));
-    $('#inviteResult').innerHTML='<p>Code für '+esc(email)+':</p><div class="code">'+esc(code)+'</div>';
+    const email=$('#inviteEmail').value.trim(), result=await requestAccessLink(sb,'invite',email);
+    showAccessResult($('#inviteResult'),result);
   });
   $$('[data-edit-member]').forEach(b=>b.onclick=()=>editMember(b.dataset.editMember));
+  $$('[data-reset-member]').forEach(b=>b.onclick=()=>busy(b,async()=>{
+    const target=person(b.dataset.resetMember);
+    if(!confirm('Reset-Link für '+target.display_name+' erstellen? Der Link ermöglicht Zugang zu diesem Konto und darf nur dieser Person übergeben werden.'))return;
+    const result=await requestAccessLink(sb,'recovery',target.user_id);
+    showAccessResult($('#inviteResult'),result);
+  }));
+}
+function showAccessResult(root,result) {
+  root.innerHTML='<p>'+esc(result.message)+'</p><label>Persönlicher Link<input type="text" readonly class="access-link"></label><button type="button" class="secondary">Link kopieren</button>';
+  root.querySelector('input').value=result.url;
+  root.querySelector('button').onclick=async()=>{
+    try{await navigator.clipboard.writeText(result.url);toast('Link kopiert');}
+    catch{root.querySelector('input').select();toast('Bitte den markierten Link kopieren');}
+  };
 }
 function editMember(id) {
   const target=person(id),owner=member.role==='owner';
@@ -276,36 +294,31 @@ function openSettings(action) {
   }
 }
 function bindUI() {
-  $('#toggleSignup').onclick=()=>{
-    signup=!signup; $('#nameWrap').classList.toggle('hidden',!signup);
-    $('#authSubmit').textContent=signup?'Konto anlegen':'Anmelden';
-    $('#toggleSignup').textContent=signup?'Schon ein Konto? Anmelden':'Neues Konto anlegen';
-    $('#password').minLength=signup?12:6; $('#password').autocomplete=signup?'new-password':'current-password';
-  };
   $('#authForm').onsubmit=e=>{e.preventDefault(); busy($('#authSubmit'),async()=>{
     const email=$('#email').value.trim(), password=$('#password').value;
-    const result=signup?await sb.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname,data:{display_name:$('#displayName').value.trim()}}}):
-      await sb.auth.signInWithPassword({email,password});
+    const result=await sb.auth.signInWithPassword({email,password});
     const data=check(result); $('#password').value='';
-    $('#authInfo').textContent=signup&&!data.session?'Bitte E-Mail bestätigen und danach anmelden.':'';
+    $('#authInfo').textContent='';
     if(data.session) { user=data.user; await loadMembership(); }
   }); };
-  $('#forgotPassword').onclick=()=>busy($('#forgotPassword'),async()=>{
-    const email=$('#email').value.trim();
-    if(!email||!$('#email').reportValidity()) throw new Error('Bitte zuerst deine E-Mail-Adresse eingeben');
-    check(await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname+'?recovery=1'}));
-    $('#authInfo').textContent='Falls ein Konto existiert, erhältst du eine E-Mail zum Zurücksetzen.';
+  $('#forgotPassword').onclick=()=>{$('#authInfo').textContent='Bitte deinen Familien-Admin um einen persönlichen Reset-Link bitten. Wenn der einzige Owner keinen Zugang mehr hat, erfolgt die Wiederherstellung über das Supabase-Dashboard.';};
+  $('#redeemLink').onclick=()=>busy($('#redeemLink'),async()=>{
+    if(!accessLink)throw new Error('Bitte einen neuen Link beim Admin anfordern');
+    const data=await redeemAccessLink(sb,accessLink);user=data.user;
+    pendingFamilyCode=accessLink.familyCode;recovery=true;
+    $('#passwordForm').reset();$('#passwordHeading').textContent=accessLink.kind==='invite'?'Dein Passwort festlegen':'Neues Passwort';
+    if(!$('#passwordDialog').open)$('#passwordDialog').showModal();
   });
   $('#passwordForm').onsubmit=e=>{e.preventDefault(); busy($('#savePassword'),async()=>{
     if($('#newPassword').value!==$('#confirmPassword').value) throw new Error('Die Passwörter stimmen nicht überein');
+    if($('#newPassword').value.length<12)throw new Error('Mindestens zwölf Zeichen erforderlich');
     check(await sb.auth.updateUser({password:$('#newPassword').value}));
+    if(pendingFamilyCode) {check(await sb.rpc('join_family',{p_code:pendingFamilyCode}));pendingFamilyCode=null;}
     $('#passwordForm').reset(); $('#passwordDialog').close(); recovery=false;
+    accessLink=null;$('#inviteLinkBox').classList.add('hidden');
     history.replaceState(null,'',location.pathname); toast('Passwort geändert'); await loadMembership();
   }); };
-  $('#cancelPassword').onclick=()=>{recovery=false; $('#passwordForm').reset(); $('#passwordDialog').close(); history.replaceState(null,'',location.pathname);};
-  $('#createFamilyChoice').onclick=()=>{$('#createFamilyBox').classList.remove('hidden');$('#joinFamilyBox').classList.add('hidden');};
-  $('#joinFamilyChoice').onclick=()=>{$('#joinFamilyBox').classList.remove('hidden');$('#createFamilyBox').classList.add('hidden');};
-  $('#createFamilyBtn').onclick=()=>busy($('#createFamilyBtn'),async()=>{check(await sb.rpc('create_family',{p_name:$('#familyName').value.trim()}));await loadMembership();});
+  $('#cancelPassword').onclick=()=>busy($('#cancelPassword'),async()=>{check(await sb.auth.signOut());accessLink=null;pendingFamilyCode=null;recovery=false;$('#passwordForm').reset();clearSession();history.replaceState(null,'',location.pathname);});
   $('#joinFamilyBtn').onclick=()=>busy($('#joinFamilyBtn'),async()=>{check(await sb.rpc('join_family',{p_code:$('#inviteCode').value.trim()}));await loadMembership();});
   const logout=button=>busy(button,async()=>{check(await sb.auth.signOut());clearSession();});
   $('#logout').onclick=()=>logout($('#logout')); $('#onboardingLogout').onclick=()=>logout($('#onboardingLogout'));
@@ -352,23 +365,25 @@ async function start() {
   connectionStatus(); window.addEventListener('offline',connectionStatus);
   window.addEventListener('online',()=>{connectionStatus();if(member)refreshAll().catch(e=>toast(errorText(e)));});
   try {
-    sb=createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
+    sb=createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY,{auth:{detectSessionInUrl:false}});
     bindUI();
-    recovery=new URLSearchParams(location.search).get('recovery')==='1'||new URLSearchParams(location.hash.slice(1)).get('type')==='recovery';
+    try { accessLink=parseAccessLink(location.hash); }
+    catch(error) { history.replaceState(null,'',location.pathname);show('auth');$('#authInfo').textContent=errorText(error);setupPwa();return; }
+    if(accessLink)history.replaceState(null,'',location.pathname);
     sb.auth.onAuthStateChange((event,session)=>{
       if(event==='PASSWORD_RECOVERY') recovery=true;
       // Supabase callbacks must not await other auth methods while its lock is held.
       setTimeout(()=>{
-        if(!session) { clearSession(); return; }
+        if(!session) { if(!accessLink)clearSession(); return; }
         const changed=user?.id!==session.user.id; user=session.user;
-        if(recovery&&!$('#passwordDialog').open) $('#passwordDialog').showModal();
+        if(accessLink)return;
         if(initialized&&(changed||event==='SIGNED_IN')) loadMembership().catch(e=>toast(errorText(e)));
       },0);
     });
     const data=check(await sb.auth.getSession());
-    if(data.session) {
+    if(accessLink){show('auth');$('#inviteLinkBox').classList.remove('hidden');$('#authInfo').textContent='Dieser persönliche Link meldet dich beim eingeladenen Konto an. Bitte nur deinen eigenen Link öffnen.';}
+    else if(data.session) {
       user=data.session.user;
-      if(recovery) $('#passwordDialog').showModal();
       await loadMembership();
     } else show('auth');
     initialized=true;

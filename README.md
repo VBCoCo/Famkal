@@ -1,4 +1,23 @@
-# Leonhards Familienkalender — Famkal 1.2.0
+# Leonhards Familienkalender — Famkal 1.3.0 (vorbereitet)
+
+## Einladungsbasierte Konten ohne SMTP (1.3.0)
+
+Keine öffentliche Registrierung. Owner/Admin erzeugen persönliche Einladungslinks, die sie selbst weitergeben. Der Link wird bewusst erst nach Klick eingelöst; dann setzt die eingeladene Person ihr Passwort und tritt der vorgesehenen Familie bei. Anmeldetoken liegen im URL-Fragment und werden beim Laden aus der Adresszeile entfernt. Sie werden nicht in Projektlog oder Datenbank gespeichert. Familienzuordnung prüft bestätigte Konto-E-Mail, Gültigkeit und Einmalverwendung.
+
+`family-access` prüft die Sitzung über `getUser`, delegiert Familienrechte und Rate Limits an serverexklusive RPCs und ruft `auth.admin.generateLink` auf. Server-Schlüssel bleiben in der Edge Function. Reset nur für eigene Familienmitglieder; Admin kann außer dem eigenen Konto nur Member zurücksetzen; fremde Owner können auch durch Owner nicht zurückgesetzt werden. Ein Reset-Link ermöglicht Zugriff auf das Zielkonto und muss vertraulich persönlich übergeben werden. Bei Aussperrung des einzigen Owners: Wiederherstellung über das Supabase-Dashboard.
+
+### Verbindliche Aktivierung vor Veröffentlichung
+
+Die Vorbereitungsmigration `20261002070047_invite_only_auth_v130.sql` lässt `private.family_access_config.enabled=false`. Alte 1.2.0-Aufrufe bleiben bis zum Versionswechsel verfügbar. Vor Freigabe in **RC Apple**, Projekt `fbjvlkgvsatnjrtoigvt`, prüfen:
+
+- Auth: **Allow new users to sign up = OFF** (serverseitig); anonyme Anmeldung OFF.
+- E-Mail-Passwort: Mindestlänge 12, OTP-/Einladungs-/Recovery-Gültigkeit höchstens 3600 Sekunden; E-Mail-Bestätigung bleibt aktiv. Leaked Password Protection bleibt im Free-Tarif nicht verfügbar.
+- Site URL und erlaubte Produktionsweiterleitungen auf `https://vbcoco.github.io/Famkal/` begrenzen; benötigte Varianten explizit zulassen.
+- Edge Function `family-access` deployen: `verify_jwt=false`, weil die Funktion jeden Bearer-Token selbst serverseitig über `getUser` prüft. Ohne gültige Sitzung niemals Zugriff.
+- `tests/invite-security.sql` und die bisherigen SQL-Tests ausführen; synthetische Daten werden zurückgerollt. Auth-End-to-End-Test mit einem eigens dafür angelegten Konto durchführen; bestehende Konten und Passwörter nicht verändern.
+- Die Aktivierungsmigration `20261002071717_activate_invite_only_auth_v130.sql` ist absichtlich gesperrt. Erst nach bestätigten Auth-Einstellungen und End-to-End-Prüfung in derselben Migrationstransaktion `select set_config('famkal.auth_config_verified','yes',true);` voranstellen. Sie aktiviert Link-Freigabe und sperrt die alten `create_family`-/`create_family_invitation`-RPCs für `authenticated`. Mit Veröffentlichung der Oberfläche abstimmen. Bei Fehlern Freigabe deaktivieren; keine bestehenden Konten löschen.
+
+Die Einladungslinks senden keine E-Mail. „Passwort vergessen“ verweist auf den Familien-Admin. Normale Supabase-Recovery-Mails sind ohne SMTP für weitere Familienadressen nicht zuverlässig verfügbar. Keine automatische Wiederherstellung versprechen.
 
 ## Projektliste (1.2.0)
 

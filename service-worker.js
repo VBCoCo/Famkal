@@ -1,5 +1,5 @@
-const CACHE='famkal-shell-1.2.0';
-const SHELL=['./','./index.html','./styles.css','./app.js','./project-list.js','./calendar-utils.js','./vendor/supabase.js','./config.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='famkal-shell-1.3.0';
+const SHELL=['./','./index.html','./styles.css','./app.js','./access-links.js','./project-list.js','./calendar-utils.js','./vendor/supabase.js','./config.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL))));
 self.addEventListener('message',event=>{if(event.data?.type==='SKIP_WAITING')self.skipWaiting();});
 self.addEventListener('activate',event=>event.waitUntil((async()=>{

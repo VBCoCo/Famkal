@@ -6,18 +6,19 @@ const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const app=readFileSync(new URL('../app.js',import.meta.url),'utf8').replace(/^import .*$/gm,'');
 import * as utils from '../calendar-utils.js';
 import {mountProjectList} from '../project-list.js';
+import * as links from '../access-links.js';
 function fixture({rows=[]}={}) {
   const dom=new JSDOM(html,{url:'https://vbcoco.github.io/Famkal/',runScripts:'outside-only'});
   const w=dom.window,calls=[];
   w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
   w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');this.dispatchEvent(new w.Event('close'));};
-  const sb={auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>{},signOut:async()=>({data:{}})},from(table){
+  const sb={auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>{},signOut:async()=>({data:{}}),verifyOtp:async()=>({data:{session:{},user:{id:'u1'}}}),updateUser:async data=>{calls.push({action:'password',length:data.password.length});return {data:{}};}},from(table){
     const q={action:'read',filters:[],select(){return this;},eq(...args){this.filters.push(args);return this;},gte(){return this;},lte(){return this;},order(){return this;},range(){return this;},update(){this.action='update';return this;},insert(){this.action='insert';return this;},delete(){this.action='delete';return this;},maybeSingle(){return this;},single(){return this;},then(resolve){calls.push({table,action:this.action});return Promise.resolve({data:table==='family_members'&&this.action==='read'?[member]:rows,error:null}).then(resolve);}};
     return q;
-  },rpc:async()=>({data:null,error:null})};
+  },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:null,error:null};}};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
-  Object.assign(w,{...utils,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
-  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={openEvent,payload,card,askScope,setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
+  Object.assign(w,{...utils,...links,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
+  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={openEvent,payload,card,askScope,setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
@@ -28,6 +29,22 @@ test('event editor preserves zero-minute default and all-day clears payload time
     f.w.document.querySelector('#startTime').value='14:00';f.w.document.querySelector('#allDay').value='true';
     assert.equal(f.w.testApp.payload().start_time,null);
   }finally{f.close();}
+});
+test('invited user sets a password before joining and no public signup control exists',async()=>{
+ const f=fixture();try{
+  assert.equal(f.w.document.querySelector('#toggleSignup'),null);
+  f.w.testApp.setAccessLink({kind:'invite',token:'a'.repeat(56),familyCode:'b'.repeat(32)});
+  f.w.document.querySelector('#redeemLink').click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(f.w.document.querySelector('#passwordDialog').open,true);
+  assert.ok(!f.calls.some(c=>c.name==='join_family'));
+  f.w.document.querySelector('#newPassword').value='long-test-password';f.w.document.querySelector('#confirmPassword').value='long-test-password';
+  f.w.document.querySelector('#passwordForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,20));
+  assert.ok(f.calls.some(c=>c.action==='password'));
+  assert.equal(f.calls.find(c=>c.name==='join_family').args.p_code,'b'.repeat(32));
+ }finally{f.close();}
+});
+test('forgot password explains personal admin reset instead of sending an email',()=>{
+ const f=fixture();try{f.w.document.querySelector('#forgotPassword').click();assert.match(f.w.document.querySelector('#authInfo').textContent,/persönlichen Reset-Link/);}finally{f.close();}
 });
 test('profile opens the read-only project list',async()=>{
   const f=fixture();try{
