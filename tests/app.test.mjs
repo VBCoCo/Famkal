@@ -302,3 +302,24 @@ test('start and end times are required and one-minute appointments are accepted'
   assert.throws(()=>f.w.testApp.validateEvent({...base,end_time:'10:00'}),/Minute/);
  }finally{f.close();}
 });
+test('compact family events show type icons, preserve details and hide empty all-day rows',()=>{
+ const f=fixture();try{
+  const day=utils.localDate();
+  f.w.testApp.setEvents([makeEvent('sleep',{title:'Bettgehzeit',event_type:'bedtime',event_date:day,end_date:utils.localDate(utils.addDays(utils.dateAtNoon(day),1)),start_time:'20:15',end_time:'06:30'}),makeEvent('drive',{event_type:'transport',event_date:day})]);
+  f.w.testApp.renderFamily();const d=f.w.document;
+  assert.equal(d.querySelector('.family-allday-label'),null);
+  const bedtime=d.querySelector('[data-family-event="sleep"]');assert.equal(bedtime.querySelector('.family-event-icon').textContent,'🛏️');assert.match(bedtime.getAttribute('aria-label'),/Bettgehzeit/);
+  assert.equal(d.querySelector('[data-family-event="drive"] .family-event-icon').textContent,'🚗');
+  bedtime.click();assert.equal(d.querySelector('#eventDialog').open,true);assert.equal(d.querySelector('#eventTitle').value,'Bettgehzeit');assert.equal(d.querySelector('#endTime').value,'06:30');
+  d.querySelector('#eventDialog').close();f.w.testApp.setEvents([makeEvent('day',{all_day:true,event_date:day})]);f.w.testApp.renderFamily();assert.ok(d.querySelector('.family-allday-label'));assert.equal(d.querySelectorAll('.family-allday').length,2);
+  f.w.testApp.setCalendarSelection(['robert']);assert.equal(d.querySelector('.family-allday-label'),null);assert.equal(d.querySelectorAll('.family-column-heading').length,1);
+ }finally{f.close();}
+});
+test('shared compact header contains calendar selection and version is confined to More and profile',()=>{
+ const f=fixture();try{
+  const d=f.w.document;assert.ok(d.querySelector('header #calendarPicker'));assert.equal(d.querySelector('.calendar-picker-bar'),null);assert.doesNotMatch(d.querySelector('.app-top').textContent,/1\.7\./);assert.doesNotMatch(d.querySelector('#auth').textContent,/1\.7\./);
+  for(const view of ['today','family','week','tasks']){f.w.testApp.navigate(view);assert.equal(d.querySelector('#calendarFilters').classList.contains('hidden'),false);}
+  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.1/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.1/);
+  d.querySelector('#settingsDialog').close();d.querySelector('#availabilityInfo').click();assert.match(d.querySelector('#settingsContent').textContent,/nicht automatisch bestätigt verfügbar/);
+ }finally{f.close();}
+});

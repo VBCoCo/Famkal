@@ -375,7 +375,7 @@ function openSettings(action) {
     });
   } else {
     $('#settingsHeading').textContent='Mein Profil';
-    $('#settingsContent').innerHTML='<label>Name<input id="profileName" maxlength="80" value="'+esc(member.display_name)+'"></label><label>Farbe<input id="profileColor" type="color" value="'+safeColor(member.color)+'"></label><button id="saveProfile" class="primary">Speichern</button><hr><button id="showProject" type="button">Projekt & offene Punkte</button>';
+    $('#settingsContent').innerHTML='<p class="app-version small">Famkal '+APP_VERSION+'</p><label>Name<input id="profileName" maxlength="80" value="'+esc(member.display_name)+'"></label><label>Farbe<input id="profileColor" type="color" value="'+safeColor(member.color)+'"></label><button id="saveProfile" class="primary">Speichern</button><hr><button id="showProject" type="button">Projekt & offene Punkte</button>';
     $('#showProject').onclick=()=>openSettings('project');
     $('#saveProfile').onclick=()=>busy($('#saveProfile'),async()=>{
       await updateProfile({display_name:$('#profileName').value.trim(),color:$('#profileColor').value});
@@ -424,6 +424,7 @@ function bindUI() {
   const logout=button=>busy(button,async()=>{try{await disablePushDevice(sb);}catch{/* Sign-out still revokes the session if push cleanup fails. */}check(await sb.auth.signOut());clearSession();});
   $('#logout').onclick=()=>logout($('#logout')); $('#onboardingLogout').onclick=()=>logout($('#onboardingLogout'));
   $$('nav [data-view]').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
+  $('#availabilityInfo').onclick=()=>{ $('#settingsHeading').textContent='Verfügbarkeit';$('#settingsContent').innerHTML='<p>Ohne eingetragenen Termin ist eine Person nicht automatisch bestätigt verfügbar. Die Kalender zeigen nur die erfassten Termine.</p><p>Termine mit „Belegt diese Zeit“ markieren eine Belegung; Hinweise belegen keine Zeit. Abgesagte Termine zählen nicht als Belegung.</p>';$('#settingsDialog').showModal(); };
   $('#add').onclick=()=>openEvent(); $('#avatar').onclick=()=>openSettings('profile');
   $('#refresh').onclick=()=>busy($('#refresh'),refreshAll);
   const changeWeek=async delta=>{weekOffset+=delta; $('#weekList').innerHTML='<div class="empty">Termine werden geladen …</div>'; try{await refreshAll();}catch(error){$('#weekList').innerHTML='<div class="empty">Termine konnten nicht geladen werden. Bitte aktualisieren.</div>';toast(errorText(error));}};
@@ -530,15 +531,16 @@ function renderFamily() {
  const visible=calendars.filter(c=>selectedCalendars?.includes(c.id));
  if(!visible.length){root.innerHTML='<div class="empty">Bitte Kalender einblenden.</div>';return;}
  const filtered=filterEvents(events,calendarFilter,myPersonId());
- let html='<div class="family-scroll" tabindex="0" aria-label="Familienkalender, horizontal und vertikal verschiebbar"><div class="family-grid" style="--columns:'+visible.length+'"><div class="family-corner">Uhrzeit</div>'+visible.map(c=>'<div class="family-column-heading"><strong>'+esc(c.display_name)+'</strong>'+(c.is_active?'':'<small>Archiviert</small>')+'</div>').join('');
- html+='<div class="family-allday-label">Ganztägig</div>'+visible.map(c=>{const list=filtered.filter(e=>e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>l.calendar_id===c.id));return '<div class="family-allday">'+list.map(e=>'<button type="button" data-family-event="'+esc(e.id)+'" class="family-all-event" style="--assignment:'+assignmentColors(e,allPeople())+'">'+esc(e.title)+'</button>').join('')+'</div>';}).join('');
+ let html='<div class="family-scroll" tabindex="0" aria-label="Familienkalender, ausgewählte Kalender nebeneinander, vertikal verschiebbar"><div class="family-grid" style="--columns:'+visible.length+'"><div class="family-corner">Zeit</div>'+visible.map(c=>'<div class="family-column-heading"><strong>'+esc(c.display_name)+'</strong>'+(c.is_active?'':'<small>Archiviert</small>')+'</div>').join('');
+ const hasAllDay=filtered.some(e=>e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>visible.some(c=>c.id===l.calendar_id)));
+ if(hasAllDay)html+='<div class="family-allday-label" aria-label="Ganztägig">Tag</div>'+visible.map(c=>{const list=filtered.filter(e=>e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>l.calendar_id===c.id));return '<div class="family-allday">'+list.map(e=>'<button type="button" data-family-event="'+esc(e.id)+'" class="family-all-event" style="--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(e.title+' · Ganztägig')+'"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><strong>'+esc(e.title)+'</strong></button>').join('')+'</div>';}).join('');
  html+='<div class="family-hours">'+Array.from({length:24},(_,i)=>'<span style="top:'+i*48+'px">'+String(i).padStart(2,'0')+':00</span>').join('')+'</div>';
  html+=visible.map(c=>{
   const rows=layoutDayEvents(filtered.filter(e=>!e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>l.calendar_id===c.id)),familyDay);
-  return '<div class="family-day-column">'+rows.map(({event:e,start,end,lane,lanes})=>'<button type="button" class="family-time-event'+(e.blocks_time===false?' time-hint':'')+(e.is_cancelled?' cancelled':'')+'" data-family-event="'+esc(e.id)+'" style="top:'+start*.8+'px;height:'+Math.max(26,(end-start)*.8)+'px;left:calc('+lane*100/lanes+'% + 3px);width:calc('+100/lanes+'% - 6px);--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(c.display_name+' · '+e.title+' · '+cardTime(e,familyDay))+'"><small>'+esc((start===0&&e.event_date<familyDay?'00:00':e.start_time?.slice(0,5))+'–'+(end===1440?'24:00':e.end_time?.slice(0,5)))+'</small><strong>'+esc(e.title)+'</strong><small>'+eventRoles(e).map(esc).join(' · ')+'</small>'+(e.blocks_time===false?'<small>Hinweis · belegt nicht</small>':'')+'</button>').join('')+'</div>';
+  return '<div class="family-day-column">'+rows.map(({event:e,start,end,lane,lanes})=>'<button type="button" class="family-time-event'+(e.blocks_time===false?' time-hint':'')+(e.is_cancelled?' cancelled':'')+'" data-family-event="'+esc(e.id)+'" style="top:'+start*.8+'px;height:'+Math.max(26,(end-start)*.8)+'px;left:calc('+lane*100/lanes+'% + 3px);width:calc('+100/lanes+'% - 6px);--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(c.display_name+' · '+e.title+' · '+cardTime(e,familyDay))+'"><span class="family-event-meta"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><small>'+esc(start===0&&e.event_date<familyDay?'00:00':e.start_time?.slice(0,5))+'</small></span><strong>'+esc(e.title)+'</strong>'+'</button>').join('')+'</div>';
  }).join('')+'</div></div>';
- const old=root.querySelector('.family-scroll');const y=old?.scrollTop??330,x=old?.scrollLeft??0;
- root.innerHTML=html;const scroll=root.querySelector('.family-scroll');scroll.scrollTop=y;scroll.scrollLeft=x;
+ const old=root.querySelector('.family-scroll');const y=old?.scrollTop??330;
+ root.innerHTML=html;const scroll=root.querySelector('.family-scroll');scroll.scrollTop=y;
  $$('[data-family-event]').forEach(b=>b.onclick=()=>{const e=events.find(e=>e.id===b.dataset.familyEvent);if(e)openEvent(e);});
 }
 function renderCalendarAdmin() {

@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.6.0
+# Leonhards Familienkalender — Famkal 1.7.1
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -388,3 +388,7 @@ keine pauschale Wiederherstellung des alten Datenbestands und kein ungefilterter
 Rücksprung auf die 1.6-Ansicht. Neue Einträge sichern und vorzugsweise eine
 Vorwärtskorrektur bereitstellen. Backups enthalten Familieninhalte und gehören
 nicht ins öffentliche Repository. Kostenloses Supabase-Projekt unverändert.
+
+## Kompakte Familienübersicht (1.7.1)
+
+Gemeinsame Kopfzeile mit kleinem Ansichtstitel, Kalenderauswahl und Profil; flache Filter. Version nur im Profil und unter Mehr. Familienansicht verteilt die verfügbare Breite auf die ausgewählten Kalender, mit schmaler Zeitspalte, kompakter Datumsnavigation und Verfügbarkeitshinweis mit Erklärung. Terminsymbole einschließlich Bettgehzeit bleiben bei schmalen Spalten sichtbar; Details per Antippen. Ganztagszeile nur bei vorhandenen Terminen. Keine Änderung der Kalenderdaten oder Berechtigungen.
