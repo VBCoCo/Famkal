@@ -47,7 +47,7 @@ test('All clears individuals, fake people can be selected and stale edit timesta
   f.w.testApp.openEvent(makeEvent('edit',{updated_at:'2026-10-02T10:00:00Z',assignments:[{role:'assignee',test_member_id:'pink'}]}));
   const d=f.w.document;assert.equal(d.querySelector('#assigneePeople input[value=pink]').checked,true);
   assert.equal(f.w.testApp.payload().expected_updated_at,'2026-10-02T10:00:00Z');
-  d.querySelector('#assigneeAll').click();const data=f.w.testApp.payload();assert.equal(data.assignee_all,true);assert.equal(data.assignments.length,0);assert.equal(d.querySelector('#assigneePeople input[value=pink]').disabled,true);
+  d.querySelector('#assigneeAll').click();const data=f.w.testApp.payload();assert.equal(data.assignee_all,true);assert.equal(data.assignments.length,0);assert.equal(d.querySelector('#assigneePeople input[value=pink]').disabled,false);
  }finally{f.close();}
 });
 test('cancelled filter persists in every view and includes plain appointments in tasks',()=>{
@@ -319,7 +319,7 @@ test('shared compact header contains calendar selection and version is confined 
  const f=fixture();try{
   const d=f.w.document;assert.ok(d.querySelector('header #calendarPicker'));assert.equal(d.querySelector('.calendar-picker-bar'),null);assert.doesNotMatch(d.querySelector('.app-top').textContent,/1\.7\./);assert.doesNotMatch(d.querySelector('#auth').textContent,/1\.7\./);
   for(const view of ['today','family','week','tasks']){f.w.testApp.navigate(view);assert.equal(d.querySelector('#calendarFilters').classList.contains('hidden'),false);}
-  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.4/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.4/);
+  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.5/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.5/);
   d.querySelector('#settingsDialog').close();d.querySelector('#availabilityInfo').click();assert.match(d.querySelector('#settingsContent').textContent,/nicht automatisch bestätigt verfügbar/);
  }finally{f.close();}
 });
@@ -341,5 +341,24 @@ test('responsibility shows an existing Leo event in Robert calendar without addi
   f.w.testApp.setRole('member');d.querySelector('[data-family-event="bring"]').click();assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),true);d.querySelector('#eventSummaryDialog').close();
   f.w.testApp.setRole('owner');f.w.testApp.openEvent(event);assert.match(d.querySelector('#automaticCalendars').textContent,/Robert/);assert.equal(d.querySelector('#eventCalendars input[value="robert"]').checked,false);assert.deepEqual(Array.from(f.w.testApp.payload().calendar_ids),['leo']);
   d.querySelector('#transportTo').value='';d.querySelector('#transportTo').dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(d.querySelector('#automaticCalendars').textContent,'');
+ }finally{f.close();}
+});
+
+test('All switches directly to an individual and saves the new assignment',async()=>{
+ const f=fixture({rpcResult:'saved'});try{
+  f.w.testApp.openEvent(makeEvent('all-edit',{assignee_all:true,assignments:[],updated_at:'2026-10-03T08:00:00Z'}));const d=f.w.document,person=d.querySelector('#assigneePeople input[value="u1"]');
+  assert.equal(person.disabled,false);person.click();assert.equal(d.querySelector('#assigneeAll').checked,false);assert.equal(person.checked,true);
+  d.querySelector('#assigneeAll').click();assert.equal(person.checked,false);person.click();assert.equal(d.querySelector('#assigneeAll').checked,false);
+  d.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,20));
+  const call=f.calls.find(c=>c.name==='save_calendar_event_v170');assert.ok(call);assert.equal(call.args.p_event.assignee_all,false);assert.equal(call.args.p_event.assignments[0].person_id,'u1');assert.equal(call.args.p_event.expected_updated_at,'2026-10-03T08:00:00Z');
+ }finally{f.close();}
+});
+test('bedtime stays in Leo calendar while responsible users retain tasks and the explanation',()=>{
+ const f=fixture();try{
+  const event=makeEvent('bed-only',{title:'Bettgehzeit',event_type:'bedtime',event_date:utils.localDate(),calendar_links:[{calendar_id:'leo'},{calendar_id:'robert'}],assignee_all:true,assignments:[]});
+  f.w.testApp.setEvents([event]);f.w.testApp.setCalendarSelection(['robert']);f.w.testApp.renderFamily();const d=f.w.document;
+  assert.equal(d.querySelectorAll('[data-family-event="bed-only"]').length,0);assert.equal(d.querySelector('#todayList [data-id="bed-only"]'),null);assert.ok(d.querySelector('#tasksList [data-id="bed-only"]'));
+  f.w.testApp.setCalendarSelection(['leo']);assert.equal(d.querySelectorAll('[data-family-event="bed-only"]').length,1);f.w.testApp.openEvent(event);assert.equal(d.querySelector('#bedtimeAssignmentInfo').classList.contains('hidden'),false);assert.match(d.querySelector('#bedtimeAssignmentInfo').textContent,/alle ausgewählten Personen/);
+  d.querySelector('#eventType').value='appointment';d.querySelector('#eventType').dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(d.querySelector('#bedtimeAssignmentInfo').classList.contains('hidden'),true);
  }finally{f.close();}
 });

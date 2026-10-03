@@ -51,6 +51,18 @@ begin
  select updated_at::text into stamp from public.events where id=eid;
  perform public.save_calendar_event_v170(data||jsonb_build_object('calendar_ids',jsonb_build_array(leo_c),'expected_updated_at',stamp,'title','Whole series update'),eid,'series');n:=n+1;
  reset role;
+ insert into public.push_subscriptions(user_id,endpoint,subscription) values(owner_id,'https://web.push.apple.com/v175-test-'||owner_id,'{}'),(member_id,'https://web.push.apple.com/v175-test-'||member_id,'{}');
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);set local role authenticated;
+ eid:=public.save_calendar_event_v170(data||jsonb_build_object('event_type','bedtime','calendar_ids',jsonb_build_array(owner_c),'assignee_all',true));
+ reset role;
+ if (select count(*) from private.push_eligible('2030-01-01 08:45:00+00') where event_id=eid and user_id=owner_id)<>1 then raise exception 'All bedtime owner not notified exactly once';end if;n:=n+1;
+ if exists(select 1 from private.push_eligible('2030-01-01 08:45:00+00') where event_id=eid and user_id=member_id) then raise exception 'Non-group member got All reminder';end if;n:=n+1;
+ select updated_at::text into stamp from public.events where id=eid;
+ set local role authenticated;
+ perform public.save_calendar_event_v170(data||jsonb_build_object('event_type','bedtime','calendar_ids',jsonb_build_array(owner_c),'assignee_all',false,'assignments',jsonb_build_array(jsonb_build_object('role','assignee','person_id',member_p)),'expected_updated_at',stamp),eid);
+ reset role;
+ if exists(select 1 from private.push_eligible('2030-01-01 08:45:00+00') where event_id=eid and user_id=owner_id) then raise exception 'Calendar-only bedtime owner notified';end if;n:=n+1;
+ if (select count(*) from private.push_eligible('2030-01-01 08:45:00+00') where event_id=eid and user_id=member_id and roles='Zuständig')<>1 then raise exception 'Chosen bedtime member not notified exactly once';end if;n:=n+1;
  if has_function_privilege('anon','public.manage_calendar(uuid,text,text,integer,boolean,boolean)','execute') or has_function_privilege('authenticated','public.prepare_family_access_link_v170(uuid,text,text,uuid,uuid)','execute') then raise exception 'Privileged RPC exposed';end if;n:=n+1;
  raise notice '% isolated 1.7 checks passed',n;
 end $$;

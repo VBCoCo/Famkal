@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.4
+# Leonhards Familienkalender — Famkal 1.7.5
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -404,3 +404,7 @@ Gemeinsame Kalenderprüfung behandelt NEW.id und OLD.event_id in getrennten Trig
 ## Zuständigkeitskalender und kompakte Zeitfelder (1.7.4)
 
 Termine erscheinen automatisch in den Kalendern der Personen für Bringt, Holt oder Zuständig; Alle verwendet die explizite Verantwortungsgruppe. Anzeige aus bestehenden Aufgaben abgeleitet, keine Kopien oder neuen Kalenderverknüpfungen. Kalenderauswahl wirkt auch auf automatische Einträge; Bearbeitungsrechte unverändert. Beginn und Ende jeweils mit Datum und Uhrzeit in einer Zeile, auch mobil; ganztägig ohne Uhrzeitfelder.
+
+## Alle-Auswahl und Bettgehzeit (1.7.5)
+
+Einzelpersonen bleiben bei Alle antippbar; Auswählen einer Person deaktiviert Alle automatisch, Alle deaktiviert Einzelpersonen. Bettgehzeiten erscheinen ausschließlich in Leos Kalender, auch bei vorhandenen zusätzlichen Kalenderverknüpfungen. Aufgaben und Erinnerungen der Zuständigen bleiben erhalten. Hinweis im Zuständigkeitsfeld. Erinnerungs-Empfänger folgen bei Bettgehzeit ausschließlich Aufgaben/Verantwortungsgruppe; reine Kalenderzugehörigkeit erzeugt keinen zusätzlichen Empfänger.

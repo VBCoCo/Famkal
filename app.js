@@ -120,7 +120,7 @@ const allPeople=()=>profiles.length?profiles.filter(p=>p.is_active).map(p=>({...
 const myPersonId=()=>profiles.find(p=>p.linked_user_id===user?.id)?.id||user?.id;
 const normalizeEvent=e=>({...e,calendar_people:(e.calendar_links||[]).map(link=>calendars.find(c=>c.id===link.calendar_id)?.person_id).filter(Boolean),requires_assignment:(e.calendar_links||[]).some(link=>calendars.find(c=>c.id===link.calendar_id)?.allow_family_create),all_task_person_ids:profiles.filter(p=>p.is_active&&p.include_in_all_tasks).map(p=>p.id)});
 const displayCalendarIds=e=>eventCalendarIds(e,calendars,allPeople());
-const selectedEvents=()=>calendars.length?events.filter(e=>displayCalendarIds(e).some(id=>selectedCalendars?.includes(id))):events;
+const selectedEvents=({tasks=false}={})=>calendars.length?events.filter(e=>eventCalendarIds(e,calendars,allPeople(),{includeBedtimeResponsibilities:tasks}).some(id=>selectedCalendars?.includes(id))):events;
 const person=id=>allPeople().find(m=>m.user_id===id);
 const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️',vacation:'🏖️'}[type]||'📅');
 function card(event, {mine=false, task=false, day=event.event_date}={}) {
@@ -172,7 +172,7 @@ function renderWeek() {
 }
 function renderTasks() {
   const today=localDate(), end=localDate(addDays(new Date(),120));
-  const list=filterEvents(selectedEvents().filter(e=>eventEndDate(e)>=today&&e.event_date<=end&&(calendarFilter==='cancelled'||isTask(e)||calendarFilter==='open')),calendarFilter,myPersonId());
+  const list=filterEvents(selectedEvents({tasks:true}).filter(e=>eventEndDate(e)>=today&&e.event_date<=end&&(calendarFilter==='cancelled'||isTask(e)||calendarFilter==='open')),calendarFilter,myPersonId());
   $('#tasksList').innerHTML=list.length?groupedCards(list.slice(0,taskLimit),{mine:calendarFilter==='mine',task:true}):'<div class="empty">Keine passenden Aufgaben.</div>';
   $('#moreTasks').classList.toggle('hidden',list.length<=taskLimit); bindCards();
 }
@@ -228,7 +228,7 @@ function openEvent(event=null) {
   $('#blocksTime').checked=event?.blocks_time!==false;
   fillEventCalendars(event);
   $('#assigneeAll').checked=!!event?.assignee_all;
-  $$('#assigneePeople input').forEach(input=>{input.checked=assignmentIds(event||{},'assignee').includes(input.value);input.disabled=!!event?.assignee_all;});
+  $$('#assigneePeople input').forEach(input=>{input.checked=!event?.assignee_all&&assignmentIds(event||{},'assignee').includes(input.value);input.disabled=false;});
   (event?.reminders??[member.default_reminder_minutes??15]).forEach(addReminder);
   const recurrence=series.find(s=>s.id===event?.series_id);
   $('#recurrence').value=recurrence?.recurrence||'none';
@@ -463,7 +463,8 @@ function bindUI() {
     });
   });
   $$('[data-filter]').forEach(b=>b.onclick=()=>{calendarFilter=taskFilter=b.dataset.filter;taskLimit=50;upcomingLimit=5;syncFilters();renderToday();renderWeek();renderTasks();renderFamily();});
-  $('#assigneeAll').onchange=()=>$$('#assigneePeople input').forEach(x=>{x.disabled=$('#assigneeAll').checked;if(x.disabled)x.checked=false;});
+  $('#assigneeAll').onchange=()=>{if($('#assigneeAll').checked)$$('#assigneePeople input').forEach(x=>x.checked=false);};
+  $('#assigneePeople').addEventListener('change',e=>{if(e.target.matches('input[type=checkbox]')&&e.target.checked)$('#assigneeAll').checked=false;});
   $('#recurrence').onchange=()=>$('#weekdayChoices').classList.toggle('hidden',$('#recurrence').value!=='custom');
   $('#eventType').onchange=()=>{const type=$('#eventType').value,id=$('#eventId').value;if(!id){if(type==='bedtime'){$('#eventEndDate').value=localDate(addDays(dateAtNoon($('#eventDate').value),1));if(!$('#startTime').value)$('#startTime').value='20:00';if(!$('#endTime').value)$('#endTime').value='06:00';}if(type==='vacation'){$('#allDay').value='true';$('#recurrence').value='none';$('#weekdayChoices').classList.add('hidden');toggleAllDay();}}$('#recurrence').disabled=!!id||type==='vacation';$('#recurrenceEnd').disabled=!!id||type==='vacation';$('#saveEvent').textContent=type==='vacation'&&!id?'Nächster Schritt':'Speichern';};
   $('#eventDate').onchange=()=>{if($('#eventEndDate').value<$('#eventDate').value)$('#eventEndDate').value=$('#eventDate').value;};
@@ -535,11 +536,12 @@ function updateCalendarPicker() {
  $('#showMyCalendar').disabled=!calendars.some(c=>c.person_id===myPersonId());
 }
 function updateAutomaticCalendars() {
+ const bedtime=$('#eventType').value==='bedtime';$('#bedtimeAssignmentInfo').classList.toggle('hidden',!bedtime);$('#calendarDisplayHint').textContent=bedtime?'Bettgehzeit erscheint nur in Leos Kalender.':'Bringt, Holt und Zuständig erscheinen automatisch auch im jeweiligen Kalender.';
  const explicit=$$('#eventCalendars input:checked').map(x=>x.value);
  const event={calendar_links:explicit.map(calendar_id=>({calendar_id})),assignee_all:$('#assigneeAll').checked,
   assignments:[...$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value})),...['transportTo','transportFrom'].filter(id=>$('#'+id).value).map(id=>({role:id==='transportTo'?'to':'from',person_id:$('#'+id).value}))]};
  const extra=displayCalendarIds(event).filter(id=>!explicit.includes(id)).map(id=>calendars.find(c=>c.id===id)?.display_name).filter(Boolean);
- $('#automaticCalendars').textContent=extra.length?'Automatisch auch in: '+extra.join(', '):'';
+ $('#automaticCalendars').textContent=!bedtime&&extra.length?'Automatisch auch in: '+extra.join(', '):'';
 }
 function fillEventCalendars(event) {
  const own=calendars.find(c=>c.person_id===myPersonId()&&c.is_active),defaultCalendar=own||calendars.find(c=>c.allow_family_create&&c.is_active);

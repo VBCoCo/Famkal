@@ -94,3 +94,8 @@ test('calendar display derives all responsibility roles and the explicit All gro
  assert.deepEqual(eventCalendarIds({...base,assignments:[{role:'to',person_id:'r'},{role:'from',person_id:'r'},{role:'assignee',person_id:'r'}]},calendars,people),['leo','robert']);
  assert.deepEqual(eventCalendarIds({...base,transport_to_id:'r'},calendars,people),['leo','robert']);assert.deepEqual(base.calendar_links,[{calendar_id:'leo'}]);
 });
+
+test('bedtime display ignores extra calendar links but retains responsibility for tasks',async()=>{
+ const {eventCalendarIds,assignedTo}=await import('../calendar-utils.js');const calendars=[{id:'leo',person_id:'child',allow_family_create:true},{id:'robert',person_id:'r'},{id:'anna',person_id:'a'}];
+ const event={event_type:'bedtime',calendar_links:[{calendar_id:'robert'}],assignments:[{role:'assignee',person_id:'a'}]};assert.deepEqual(eventCalendarIds(event,calendars),['leo']);assert.deepEqual(eventCalendarIds(event,calendars,[],{includeBedtimeResponsibilities:true}),['robert','anna']);assert.equal(assignedTo(event,'a'),true);assert.deepEqual(event.calendar_links,[{calendar_id:'robert'}]);
+});
