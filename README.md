@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.7
+# Leonhards Familienkalender — Famkal 1.7.8
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -415,3 +415,7 @@ Die Zusatzfelder Bringt/Holt und ihre Aufgaben-, Farb-, Kalender- und Erinnerung
 ## Einladungsabschluss (1.7.7)
 
 Die Kalenderprüfung beim Abschluss eines Einladungslinks verwendet eindeutige Tabellenaliase für ID, Familie, Ablauf und Verwendung. Regressionstest reproduziert den ursprünglichen Fehler und prüft danach den vollständigen Prepare/Finish/Join-Ablauf sowie Zielkonto, Ablauf, Archivierung, Wiederverwendung, Rechte und Recovery. Bestehende Konten und Einladungen bleiben erhalten.
+
+## Farbauswahl auf dem iPhone (1.7.8)
+
+Profil, Mitglieder, Testmitglieder und Kalenderverwaltung zeigen neben dem nativen Farbwähler eine unabhängige Farbvorschau und den Hex-Wert. Vorschau reagiert auf Input und Change; feste Höhe und Swatch-Regeln verhindern das Abschneiden durch allgemeines Input-Padding. Bestehende Speicherwege und Datenbank bleiben unverändert.

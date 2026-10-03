@@ -321,7 +321,7 @@ function renderAdmin() {
 function editTestMember(id) {
  const target=testMembers.find(m=>m.id===id);if(!target||!admin())return;
  $('#settingsHeading').textContent='Testmitglied';
- $('#settingsContent').innerHTML='<label>Name<input id="testName" maxlength="80" value="'+esc(target.display_name)+'"></label><label>Farbe<input id="testColor" type="color" value="'+safeColor(target.color)+'"></label><button type="button" id="saveTestMember" class="primary">Speichern</button><button type="button" id="removeTestMember" class="danger-btn">Testmitglied entfernen</button><p class="small">Termine bleiben erhalten. Nur die Zuordnungen zu diesem Testmitglied werden entfernt.</p>';
+ $('#settingsContent').innerHTML='<label>Name<input id="testName" maxlength="80" value="'+esc(target.display_name)+'"></label>'+colorField('testColor','Farbe',target.color)+'<button type="button" id="saveTestMember" class="primary">Speichern</button><button type="button" id="removeTestMember" class="danger-btn">Testmitglied entfernen</button><p class="small">Termine bleiben erhalten. Nur die Zuordnungen zu diesem Testmitglied werden entfernt.</p>';
  $('#saveTestMember').onclick=()=>busy($('#saveTestMember'),async()=>{check(await sb.rpc('manage_test_member',{p_id:id,p_name:$('#testName').value.trim(),p_color:$('#testColor').value}));$('#settingsDialog').close();await refreshAll();});
  $('#removeTestMember').onclick=()=>busy($('#removeTestMember'),async()=>{if(!confirm('Testmitglied '+target.display_name+' entfernen und seine Zuordnungen lösen? Termine und andere Zuständige bleiben erhalten.'))return;check(await sb.rpc('manage_test_member',{p_id:id,p_remove:true}));$('#settingsDialog').close();await refreshAll();});
  $('#settingsDialog').showModal();
@@ -353,7 +353,7 @@ function showAccessResult(root,result) {
 function editMember(id) {
   const target=members.find(m=>m.user_id===id),owner=member.role==='owner';
   $('#settingsHeading').textContent='Mitglied bearbeiten';
-  $('#settingsContent').innerHTML='<label>Name<input id="mName" maxlength="80" value="'+esc(target.display_name)+'"></label><label>Farbe<input id="mColor" type="color" value="'+safeColor(target.color)+'"></label>'+
+  $('#settingsContent').innerHTML='<label>Name<input id="mName" maxlength="80" value="'+esc(target.display_name)+'"></label>'+colorField('mColor','Farbe',target.color)+
     '<label>Rolle<select id="mRole"><option value="member">Mitglied</option>'+(owner?'<option value="admin">Administrator</option><option value="owner">Eigentümer</option>':'')+'</select></label><button id="saveMember" class="primary">Speichern</button>';
   $('#mRole').value=target.role; $('#mRole').disabled=!owner;
   $('#saveMember').onclick=()=>busy($('#saveMember'),async()=>{
@@ -391,7 +391,7 @@ function openSettings(action) {
     });
   } else {
     $('#settingsHeading').textContent='Mein Profil';
-    $('#settingsContent').innerHTML='<p class="app-version small">Famkal '+APP_VERSION+'</p><label>Name<input id="profileName" maxlength="80" value="'+esc(member.display_name)+'"></label><label>Farbe<input id="profileColor" type="color" value="'+safeColor(member.color)+'"></label><button id="saveProfile" class="primary">Speichern</button><hr><button id="showProject" type="button">Projekt & offene Punkte</button>';
+    $('#settingsContent').innerHTML='<p class="app-version small">Famkal '+APP_VERSION+'</p><label>Name<input id="profileName" maxlength="80" value="'+esc(member.display_name)+'"></label>'+colorField('profileColor','Farbe',member.color)+'<button id="saveProfile" class="primary">Speichern</button><hr><button id="showProject" type="button">Projekt & offene Punkte</button>';
     $('#showProject').onclick=()=>openSettings('project');
     $('#saveProfile').onclick=()=>busy($('#saveProfile'),async()=>{
       await updateProfile({display_name:$('#profileName').value.trim(),color:$('#profileColor').value});
@@ -399,7 +399,21 @@ function openSettings(action) {
     });
   }
 }
+function colorField(id,label,value) {
+ const color=safeColor(value);
+ return '<label>'+esc(label)+'<span class="color-control"><input id="'+esc(id)+'" type="color" value="'+color+'" aria-label="'+esc(label)+' wählen"><span class="color-preview" style="background:'+color+'" aria-hidden="true"></span><output class="color-value" for="'+esc(id)+'">'+color.toUpperCase()+'</output></span></label>';
+}
+function updateColorPreview(event) {
+ const input=event.target;
+ if(!input.matches('input[type=color]'))return;
+ const control=input.closest('.color-control');if(!control)return;
+ const color=safeColor(input.value);
+ control.querySelector('.color-preview').style.backgroundColor=color;
+ control.querySelector('.color-value').textContent=color.toUpperCase();
+}
 function bindUI() {
+  $('#settingsContent').addEventListener('input',updateColorPreview);
+  $('#settingsContent').addEventListener('change',updateColorPreview);
   $('#authForm').onsubmit=e=>{e.preventDefault(); busy($('#authSubmit'),async()=>{
     const email=$('#email').value.trim(), password=$('#password').value;
     const result=await sb.auth.signInWithPassword({email,password});
@@ -577,7 +591,7 @@ function renderCalendarAdmin() {
 function editCalendar(id=null) {
  const c=calendars.find(c=>c.id===id),p=profiles.find(p=>p.id===c?.person_id);
  $('#settingsHeading').textContent=c?'Kalender verwalten':'Kalender hinzufügen';
- $('#settingsContent').innerHTML='<label>Anzeigename<input id="calName" maxlength="80" required value="'+esc(c?.display_name||'')+'"></label><label>Personenfarbe<input id="calColor" type="color" value="'+safeColor(p?.color||'#819b61')+'"></label><label>Reihenfolge<input id="calOrder" type="number" step="1" value="'+(c?.sort_order??calendars.length)+'"></label><label class="checkbox-label"><input type="checkbox" id="calActive" '+(c?.is_active!==false?'checked':'')+'>Kalender aktiv</label><label class="checkbox-label"><input type="checkbox" id="calAll" '+(p?.include_in_all_tasks?'checked':'')+'>Gehört zur Verantwortungsgruppe „Alle“</label><p class="small">Die Gruppe gilt auch für bestehende „Alle“-Termine. Archivieren erhält alle Termine. Ein neuer Kalender erweitert die Gruppe nicht automatisch.</p><button type="button" id="saveCalendar" class="primary">Speichern</button>';
+ $('#settingsContent').innerHTML='<label>Anzeigename<input id="calName" maxlength="80" required value="'+esc(c?.display_name||'')+'"></label>'+colorField('calColor','Personenfarbe',p?.color||'#819b61')+'<label>Reihenfolge<input id="calOrder" type="number" step="1" value="'+(c?.sort_order??calendars.length)+'"></label><label class="checkbox-label"><input type="checkbox" id="calActive" '+(c?.is_active!==false?'checked':'')+'>Kalender aktiv</label><label class="checkbox-label"><input type="checkbox" id="calAll" '+(p?.include_in_all_tasks?'checked':'')+'>Gehört zur Verantwortungsgruppe „Alle“</label><p class="small">Die Gruppe gilt auch für bestehende „Alle“-Termine. Archivieren erhält alle Termine. Ein neuer Kalender erweitert die Gruppe nicht automatisch.</p><button type="button" id="saveCalendar" class="primary">Speichern</button>';
  $('#saveCalendar').onclick=()=>busy($('#saveCalendar'),async()=>{
   if(!$('#calName').reportValidity()||!$('#calOrder').reportValidity())return;
   check(await sb.rpc('manage_calendar',{p_id:id,p_name:$('#calName').value.trim(),p_color:$('#calColor').value,p_order:Number($('#calOrder').value),p_active:$('#calActive').checked,p_all:$('#calAll').checked}));

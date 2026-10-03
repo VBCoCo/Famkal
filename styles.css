@@ -45,3 +45,6 @@ input,select,textarea{font-size:16px!important}
 .event-time-row{display:grid;grid-template-columns:40px minmax(0,1fr) 96px;gap:4px;align-items:center;margin:8px 0}.event-time-row.all-day{grid-template-columns:40px minmax(0,1fr)}.event-time-row>strong{font-size:.8rem}.event-time-row label{margin:0;min-width:0}.event-time-row input{height:36px;min-width:0;max-width:100%;padding:4px 3px}.all-day-picker{display:flex;justify-content:space-between;align-items:center;font-size:.85rem;margin:8px 0}.all-day-picker select{width:100px;padding:5px;min-height:36px}#automaticCalendars:empty{display:none}
 
 #eventDialog{padding:8px}.event-time-row input{font-weight:400}
+
+/* Color controls need explicit geometry: generic input padding can hide Safari's swatch. */
+.color-control{display:flex;align-items:center;gap:10px;min-width:0}.color-control input[type=color]{flex:0 0 64px;width:64px;height:44px;min-height:44px;padding:4px;cursor:pointer}.color-control input[type=color]::-webkit-color-swatch-wrapper{padding:0}.color-control input[type=color]::-webkit-color-swatch{border:0;border-radius:7px}.color-control input[type=color]::-moz-color-swatch{border:0;border-radius:7px}.color-preview{display:block;flex:0 0 44px;width:44px;height:44px;border:1px solid #89938d;border-radius:10px}.color-value{font-size:16px;font-weight:500;white-space:nowrap}
