@@ -35,7 +35,7 @@ function clearSession() {
   $$('dialog[open]').forEach(d=>d.close());
   $('#settingsContent').replaceChildren(); $('#inviteLinkBox').classList.add('hidden');
   ['eventSummaryContent','familyBoard','todayList','upcomingList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
-  show('auth');
+  renderAccessLanding(null);show('auth');
 }
 async function busy(button, action) {
   if(button?.disabled) return;
@@ -400,20 +400,24 @@ function openSettings(action) {
   }
 }
 function colorField(id,label,value) {
- const color=safeColor(value);
- return '<label>'+esc(label)+'<span class="color-control"><input id="'+esc(id)+'" type="color" value="'+color+'" aria-label="'+esc(label)+' wählen"><span class="color-preview" style="background:'+color+'" aria-hidden="true"></span><output class="color-value" for="'+esc(id)+'">'+color.toUpperCase()+'</output></span></label>';
+ return '<label>'+esc(label)+'<span class="color-control"><input id="'+esc(id)+'" type="color" value="'+safeColor(value)+'" aria-label="'+esc(label)+' wählen"></span></label>';
 }
-function updateColorPreview(event) {
- const input=event.target;
- if(!input.matches('input[type=color]'))return;
- const control=input.closest('.color-control');if(!control)return;
- const color=safeColor(input.value);
- control.querySelector('.color-preview').style.backgroundColor=color;
- control.querySelector('.color-value').textContent=color.toUpperCase();
+function renderAccessLanding(link=accessLink,error='') {
+ const active=!!link||!!error,invite=link?.kind==='invite';
+ $('#authForm').classList.toggle('hidden',active);
+ $('#forgotPassword').classList.toggle('hidden',active);
+ $('#newAccountInfo').classList.toggle('hidden',active);
+ $('#inviteLinkBox').classList.toggle('hidden',!active);
+ $('#authHeading').textContent=error?'Link nicht verfügbar':active?(invite?'Einladung annehmen':'Passwort zurücksetzen'):'Leonhards Kalender';
+ $('#authIntro').textContent=active?(error?'Bitte deinen Familien-Admin um einen neuen persönlichen Link.':invite?'Willkommen beim Familienkalender.':'Lege ein neues Passwort für dein Konto fest.'):'Gemeinsame Termine, Fahrdienste und Erinnerungen.';
+ $('#accessInstructions').textContent=invite?'Tippe auf „Einladung annehmen“ und lege danach dein eigenes Passwort fest. Anschließend erhältst du Zugang zum Familienkalender.':'Tippe auf „Neues Passwort festlegen“, um deinen persönlichen Reset-Link zu verwenden.';
+ $('#redeemLink').textContent=invite?'Einladung annehmen':'Neues Passwort festlegen';
+ $('#redeemLink').classList.toggle('hidden',!!error);
+ $('#accessInstructions').classList.toggle('hidden',!!error);
+ $('#authInfo').textContent=error;
+ $('#authInfo').classList.toggle('danger',!!error);
 }
 function bindUI() {
-  $('#settingsContent').addEventListener('input',updateColorPreview);
-  $('#settingsContent').addEventListener('change',updateColorPreview);
   $('#authForm').onsubmit=e=>{e.preventDefault(); busy($('#authSubmit'),async()=>{
     const email=$('#email').value.trim(), password=$('#password').value;
     const result=await sb.auth.signInWithPassword({email,password});
@@ -435,7 +439,8 @@ function bindUI() {
   });
   $('#redeemLink').onclick=()=>busy($('#redeemLink'),async()=>{
     if(!accessLink)throw new Error('Bitte einen neuen Link beim Admin anfordern');
-    const data=await redeemAccessLink(sb,accessLink);user=data.user;
+    $('#authInfo').textContent='';$('#authInfo').classList.remove('danger');
+    let data;try{data=await redeemAccessLink(sb,accessLink);}catch(error){$('#authInfo').textContent=errorText(error);$('#authInfo').classList.add('danger');throw error;}user=data.user;
     pendingFamilyCode=accessLink.familyCode;recovery=true;
     $('#passwordForm').reset();$('#passwordHeading').textContent=accessLink.kind==='invite'?'Dein Passwort festlegen':'Neues Passwort';
     if(!$('#passwordDialog').open)$('#passwordDialog').showModal();
@@ -515,7 +520,7 @@ async function start() {
     sb=createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY,{auth:{detectSessionInUrl:false}});
     bindUI();
     try { accessLink=parseAccessLink(location.hash); }
-    catch(error) { history.replaceState(null,'',location.pathname);show('auth');$('#authInfo').textContent=errorText(error);setupPwa();return; }
+    catch(error) { history.replaceState(null,'',location.pathname);show('auth');renderAccessLanding(null,errorText(error));setupPwa();return; }
     if(accessLink)history.replaceState(null,'',location.pathname);
     sb.auth.onAuthStateChange((event,session)=>{
       if(event==='PASSWORD_RECOVERY') recovery=true;
@@ -528,7 +533,7 @@ async function start() {
       },0);
     });
     const data=check(await sb.auth.getSession());
-    if(accessLink){show('auth');$('#inviteLinkBox').classList.remove('hidden');$('#authInfo').textContent=accessLink.kind==='invite'?'Dieser persönliche Link meldet dich beim eingeladenen Konto an. Bitte nur deinen eigenen Link öffnen.':'Dieser persönliche Reset-Link ermöglicht Zugang zu deinem Konto. Bitte nur deinen eigenen Link verwenden und anschließend dein neues Passwort festlegen.';}
+    if(accessLink){show('auth');renderAccessLanding();}
     else if(data.session) {
       user=data.session.user;
       await loadMembership();
@@ -555,6 +560,7 @@ function updateAutomaticCalendars() {
   assignments:$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value}))};
  const extra=displayCalendarIds(event).filter(id=>!explicit.includes(id)).map(id=>calendars.find(c=>c.id===id)?.display_name).filter(Boolean);
  $('#automaticCalendars').textContent=!bedtime&&extra.length?'Automatisch auch in: '+extra.join(', '):'';
+ $('#calendarDisplayHint').classList.toggle('hidden',!bedtime&&extra.length>0);
 }
 function fillEventCalendars(event) {
  const own=calendars.find(c=>c.person_id===myPersonId()&&c.is_active),defaultCalendar=own||calendars.find(c=>c.allow_family_create&&c.is_active);

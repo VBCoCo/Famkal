@@ -1,6 +1,6 @@
 export function parseAccessLink(hash) {
  const params=new URLSearchParams(hash.replace(/^#/,'')),kind=params.get('famkal_type'),token=params.get('token_hash'),familyCode=params.get('family_code');
- if(params.has('error')) throw new Error('Reset-Link ist ungültig, abgelaufen oder bereits verwendet. Bitte eine neue Recovery-Mail anfordern oder deinen Familien-Administrator kontaktieren.');
+ if(params.has('error')) throw new Error('Der persönliche Link ist ungültig, abgelaufen oder bereits verwendet. Bitte deinen Familien-Admin um einen neuen Einladungslink bitten oder eine neue Recovery-Mail anfordern.');
  if(params.has('access_token')||params.has('refresh_token')||params.get('type')==='recovery') {
   const accessToken=params.get('access_token'),refreshToken=params.get('refresh_token');
   if(params.get('type')!=='recovery'||!accessToken||accessToken.length>8192||!/^[-\w]+\.[-\w]+\.[-\w]+$/.test(accessToken)||!refreshToken||!/^[-\w.]{8,2048}$/.test(refreshToken)) throw new Error('Reset-Link ist unvollständig. Bitte eine neue Recovery-Mail anfordern oder deinen Familien-Administrator kontaktieren.');

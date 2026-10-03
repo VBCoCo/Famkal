@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.8
+# Leonhards Familienkalender — Famkal 1.7.9
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -419,3 +419,7 @@ Die Kalenderprüfung beim Abschluss eines Einladungslinks verwendet eindeutige T
 ## Farbauswahl auf dem iPhone (1.7.8)
 
 Profil, Mitglieder, Testmitglieder und Kalenderverwaltung zeigen neben dem nativen Farbwähler eine unabhängige Farbvorschau und den Hex-Wert. Vorschau reagiert auf Input und Change; feste Höhe und Swatch-Regeln verhindern das Abschneiden durch allgemeines Input-Padding. Bestehende Speicherwege und Datenbank bleiben unverändert.
+
+## Mobile Bedienung und Einladung (1.7.9)
+
+Einladungen/Recovery haben eine eigene Ansicht ohne normale Anmeldung, mit klarer Aktion, Passwortanleitung und dauerhafter Fehlermeldung. Ein einzelner nativer Farbwähler ohne zusätzliche Vorschau/Hex-Wert. Familien-Terminkarten zeigen auch oben/unten 3-Pixel-Farbrahmen bei unveränderter Zeitposition und vertikalem Verlauf. Bearbeitungsmaske mit kompakten Kalender-/Zuständigkeits-Chips, kurzer Alle-Beschriftung samt Info, zusammengefasstem Kalenderhinweis und kleinerem Notizfeld. Datenmodell und Berechtigungen unverändert.
