@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.1
+# Leonhards Familienkalender — Famkal 1.7.2
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -392,3 +392,7 @@ nicht ins öffentliche Repository. Kostenloses Supabase-Projekt unverändert.
 ## Kompakte Familienübersicht (1.7.1)
 
 Gemeinsame Kopfzeile mit kleinem Ansichtstitel, Kalenderauswahl und Profil; flache Filter. Version nur im Profil und unter Mehr. Familienansicht verteilt die verfügbare Breite auf die ausgewählten Kalender, mit schmaler Zeitspalte, kompakter Datumsnavigation und Verfügbarkeitshinweis mit Erklärung. Terminsymbole einschließlich Bettgehzeit bleiben bei schmalen Spalten sichtbar; Details per Antippen. Ganztagszeile nur bei vorhandenen Terminen. Keine Änderung der Kalenderdaten oder Berechtigungen.
+
+## Querformat und kompakte Termindetails (1.7.2)
+
+Querformat erkennt die Oberfläche automatisch: Kopfzeile und Filter in einer Zeile, flache Datumsnavigation und untere Navigation. iPhone-Sicherheitsränder für Dynamic Island werden in allen Ansichten und Dialogen berücksichtigt. Spaltenberechnung verwendet tatsächliche Terminzeiten ohne künstliche Mindestüberschneidung. Kurze Termine behalten ihre Zeitfläche. Antippen in der Familienübersicht öffnet kompakte Angaben; Bearbeiten öffnet erst danach das Formular. Lange Notizen aufklappbar. Daten und Berechtigungen unverändert.

@@ -20,7 +20,7 @@ function fixture({rows=[],rpcResult=null,rpcError=null}={}) {
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
   const calendarFixture=[{id:'leo',person_id:'leo-person',display_name:'Leo',is_active:true,allow_family_create:true},{id:'robert',person_id:'u1',display_name:'Robert',is_active:true}];
   Object.assign(w,{...utils,...links,mountPushSettings,disablePushDevice,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
-  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={renderFamily,setCalendarSelection,editCalendar,validateEvent,setCalendars(value,people){calendars=value;profiles=people;selectedCalendars=value.map(c=>c.id);},start,openSettings,openNotificationEvent,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];calendars=[{id:"leo",person_id:"leo-person",display_name:"Leo",is_active:true,allow_family_create:true},{id:"robert",person_id:"u1",display_name:"Robert",is_active:true}];selectedCalendars=["leo","robert"];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
+  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={openEventSummary,renderFamily,setCalendarSelection,editCalendar,validateEvent,setCalendars(value,people){calendars=value;profiles=people;selectedCalendars=value.map(c=>c.id);},start,openSettings,openNotificationEvent,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];calendars=[{id:"leo",person_id:"leo-person",display_name:"Leo",is_active:true,allow_family_create:true},{id:"robert",person_id:"u1",display_name:"Robert",is_active:true}];selectedCalendars=["leo","robert"];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
@@ -310,7 +310,7 @@ test('compact family events show type icons, preserve details and hide empty all
   assert.equal(d.querySelector('.family-allday-label'),null);
   const bedtime=d.querySelector('[data-family-event="sleep"]');assert.equal(bedtime.querySelector('.family-event-icon').textContent,'🛏️');assert.match(bedtime.getAttribute('aria-label'),/Bettgehzeit/);
   assert.equal(d.querySelector('[data-family-event="drive"] .family-event-icon').textContent,'🚗');
-  bedtime.click();assert.equal(d.querySelector('#eventDialog').open,true);assert.equal(d.querySelector('#eventTitle').value,'Bettgehzeit');assert.equal(d.querySelector('#endTime').value,'06:30');
+  bedtime.click();assert.equal(d.querySelector('#eventSummaryDialog').open,true);assert.match(d.querySelector('#eventSummaryContent').textContent,/06:30/);assert.equal(d.querySelector('#eventDialog').open,false);assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),false);d.querySelector('#summaryEdit').click();assert.equal(d.querySelector('#eventSummaryDialog').open,false);assert.equal(d.querySelector('#eventDialog').open,true);assert.equal(d.querySelector('#eventTitle').value,'Bettgehzeit');assert.equal(d.querySelector('#endTime').value,'06:30');
   d.querySelector('#eventDialog').close();f.w.testApp.setEvents([makeEvent('day',{all_day:true,event_date:day})]);f.w.testApp.renderFamily();assert.ok(d.querySelector('.family-allday-label'));assert.equal(d.querySelectorAll('.family-allday').length,2);
   f.w.testApp.setCalendarSelection(['robert']);assert.equal(d.querySelector('.family-allday-label'),null);assert.equal(d.querySelectorAll('.family-column-heading').length,1);
  }finally{f.close();}
@@ -319,7 +319,16 @@ test('shared compact header contains calendar selection and version is confined 
  const f=fixture();try{
   const d=f.w.document;assert.ok(d.querySelector('header #calendarPicker'));assert.equal(d.querySelector('.calendar-picker-bar'),null);assert.doesNotMatch(d.querySelector('.app-top').textContent,/1\.7\./);assert.doesNotMatch(d.querySelector('#auth').textContent,/1\.7\./);
   for(const view of ['today','family','week','tasks']){f.w.testApp.navigate(view);assert.equal(d.querySelector('#calendarFilters').classList.contains('hidden'),false);}
-  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.1/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.1/);
+  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.2/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.2/);
   d.querySelector('#settingsDialog').close();d.querySelector('#availabilityInfo').click();assert.match(d.querySelector('#settingsContent').textContent,/nicht automatisch bestätigt verfügbar/);
+ }finally{f.close();}
+});
+
+test('compact summary escapes notes and hides editing for another personal calendar',()=>{
+ const f=fixture();try{
+  f.w.testApp.setRole('member');const event=makeEvent('private',{calendar_links:[{calendar_id:'anna'}],notes:'<img src=x onerror=alert(1)> '+ 'Long note '.repeat(30),location:'Somewhere',assignments:[{role:'to',person_id:'u1'}]});
+  f.w.testApp.openEventSummary(event);const d=f.w.document;
+  assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),true);assert.ok(d.querySelector('#eventSummaryContent details'));assert.equal(d.querySelector('#eventSummaryContent details').open,false);assert.equal(d.querySelector('#eventSummaryContent img'),null);assert.match(d.querySelector('#eventSummaryContent').textContent,/Bringt.*Robert/);assert.equal(f.calls.length,0);
+  f.w.testApp.clearSession();assert.equal(d.querySelector('#eventSummaryDialog').open,false);assert.equal(d.querySelector('#eventSummaryContent').textContent,'');
  }finally{f.close();}
 });

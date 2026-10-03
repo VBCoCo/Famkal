@@ -78,3 +78,10 @@ test('family timeline clips overnight events and separates overlapping appointme
  const rows=layoutDayEvents([a,b,c],'2026-10-05');assert.equal(rows[0].lanes,2);assert.notEqual(rows[0].lane,rows[1].lane);assert.equal(rows[2].lanes,1);
  assert.equal(daySegment({...a,all_day:true},'2026-10-05'),null);
 });
+
+test('adjacent short events use one lane while real conflicts reuse lanes correctly',async()=>{
+ const {layoutDayEvents}=await import('../calendar-utils.js');const base={event_date:'2026-10-05',end_date:'2026-10-05'};
+ const bring={...base,id:'bring',start_time:'14:50',end_time:'15:00'},swim={...base,id:'swim',start_time:'15:00',end_time:'17:40'},hint={...base,id:'hint',start_time:'14:49',end_time:'14:50'};
+ let rows=layoutDayEvents([swim,bring,hint],'2026-10-05');assert.ok(rows.every(r=>r.lane===0&&r.lanes===1));
+ const parallel={...base,id:'parallel',start_time:'14:55',end_time:'16:00'};rows=layoutDayEvents([bring,swim,parallel],'2026-10-05');assert.equal(rows.find(r=>r.event.id==='bring').lane,rows.find(r=>r.event.id==='swim').lane);assert.notEqual(rows.find(r=>r.event.id==='swim').lane,rows.find(r=>r.event.id==='parallel').lane);assert.ok(rows.every(r=>r.lanes===2));
+});

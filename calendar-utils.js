@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.7.1';
+export const APP_VERSION = '1.7.2';
 export function localDate(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
@@ -73,7 +73,7 @@ export function layoutDayEvents(events,day) {
  for(const row of rows){
   if(group.length&&ends.every(end=>end<=row.start))finish();
   let lane=ends.findIndex(end=>end<=row.start);if(lane<0)lane=ends.length;
-  row.lane=lane;ends[lane]=Math.max(row.end,row.start+32);group.push(row);
+  row.lane=lane;ends[lane]=row.end;group.push(row);
  }
  finish();return rows;
 }

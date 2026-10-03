@@ -34,7 +34,7 @@ function clearSession() {
   weekOffset=0; currentView='today'; pendingScope=null; calendarFilter='all'; taskFilter='all'; taskLimit=50; upcomingLimit=5; expandedEvents.clear();
   $$('dialog[open]').forEach(d=>d.close());
   $('#settingsContent').replaceChildren(); $('#inviteLinkBox').classList.add('hidden');
-  ['familyBoard','todayList','upcomingList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
+  ['eventSummaryContent','familyBoard','todayList','upcomingList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
   show('auth');
 }
 async function busy(button, action) {
@@ -194,6 +194,21 @@ function toggleAllDay() {
   ['startTime','endTime'].forEach(id=>{$('#'+id).disabled=allDay;$('#'+id).required=!allDay;});
 }
 function canEdit(event) { if(member?.role==='owner')return true;const links=event.calendar_links||[];return links.length>0&&links.every(l=>{const c=calendars.find(c=>c.id===l.calendar_id);return c&&(c.person_id===myPersonId()||(c.allow_family_create&&event.created_by===user?.id));}); }
+function openEventSummary(event) {
+  if(!member||!event)return;
+  $('#eventSummaryTitle').textContent=typeIcon(event.event_type)+' '+event.title;
+  const people=(role)=>assignmentIds(event,role).map(id=>person(id)?.display_name||'Unbekannt').join(', ');
+  const rows=[['Kalender',(event.calendar_links||[]).map(l=>calendars.find(c=>c.id===l.calendar_id)?.display_name||'').join(', ')],
+    ['Datum',dateAtNoon(event.event_date).toLocaleDateString('de-DE')+(eventEndDate(event)!==event.event_date?' bis '+dateAtNoon(eventEndDate(event)).toLocaleDateString('de-DE'):'')],
+    ['Zeit',event.all_day?'Ganztägig':(event.start_time?.slice(0,5)||'')+' – '+(event.end_time?.slice(0,5)||'')],
+    ['Ort',event.location],['Bringt',people('to')],['Holt',people('from')],['Zuständig',event.assignee_all?'Alle in der Verantwortungsgruppe':people('assignee')],
+    ['Status',event.is_cancelled?'Abgesagt':event.blocks_time===false?'Hinweis · belegt keine Zeit':''],
+    ['Erinnerung',(event.reminders||[]).map(m=>m+' Min. vorher').join(', ')],['Serie',event.series_id?'Wiederkehrender Termin':'']];
+  $('#eventSummaryContent').innerHTML='<dl class="event-facts">'+rows.filter(([,v])=>v).map(([k,v])=>'<div><dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd></div>').join('')+'</dl>'+(event.notes?event.notes.length>180?'<details class="summary-notes"><summary>Notiz anzeigen</summary><p>'+esc(event.notes)+'</p></details>':'<p class="summary-notes">'+esc(event.notes)+'</p>':'');
+  const button=$('#summaryEdit');button.classList.toggle('hidden',!canEdit(event)||Boolean(event.is_cancelled));
+  button.onclick=()=>{const current=events.find(e=>e.id===event.id);$('#eventSummaryDialog').close();if(current)openEvent(current);};
+  $('#eventSummaryDialog').showModal();
+}
 function openEvent(event=null) {
   if(!member) return;
   $('#eventDialog .dialog-notice')?.remove();
@@ -537,11 +552,11 @@ function renderFamily() {
  html+='<div class="family-hours">'+Array.from({length:24},(_,i)=>'<span style="top:'+i*48+'px">'+String(i).padStart(2,'0')+':00</span>').join('')+'</div>';
  html+=visible.map(c=>{
   const rows=layoutDayEvents(filtered.filter(e=>!e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>l.calendar_id===c.id)),familyDay);
-  return '<div class="family-day-column">'+rows.map(({event:e,start,end,lane,lanes})=>'<button type="button" class="family-time-event'+(e.blocks_time===false?' time-hint':'')+(e.is_cancelled?' cancelled':'')+'" data-family-event="'+esc(e.id)+'" style="top:'+start*.8+'px;height:'+Math.max(26,(end-start)*.8)+'px;left:calc('+lane*100/lanes+'% + 3px);width:calc('+100/lanes+'% - 6px);--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(c.display_name+' · '+e.title+' · '+cardTime(e,familyDay))+'"><span class="family-event-meta"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><small>'+esc(start===0&&e.event_date<familyDay?'00:00':e.start_time?.slice(0,5))+'</small></span><strong>'+esc(e.title)+'</strong>'+'</button>').join('')+'</div>';
+  return '<div class="family-day-column">'+rows.map(({event:e,start,end,lane,lanes})=>'<button type="button" class="family-time-event'+(e.blocks_time===false?' time-hint':'')+(e.is_cancelled?' cancelled':'')+'" data-family-event="'+esc(e.id)+'" style="top:'+start*.8+'px;height:'+Math.max(.8,(end-start)*.8)+'px;left:calc('+lane*100/lanes+'% + 3px);width:calc('+100/lanes+'% - 6px);--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(c.display_name+' · '+e.title+' · '+cardTime(e,familyDay))+'"><span class="family-event-meta"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><small>'+esc(start===0&&e.event_date<familyDay?'00:00':e.start_time?.slice(0,5))+'</small></span><strong>'+esc(e.title)+'</strong>'+'</button>').join('')+'</div>';
  }).join('')+'</div></div>';
  const old=root.querySelector('.family-scroll');const y=old?.scrollTop??330;
  root.innerHTML=html;const scroll=root.querySelector('.family-scroll');scroll.scrollTop=y;
- $$('[data-family-event]').forEach(b=>b.onclick=()=>{const e=events.find(e=>e.id===b.dataset.familyEvent);if(e)openEvent(e);});
+ $$('[data-family-event]').forEach(b=>b.onclick=()=>{const e=events.find(e=>e.id===b.dataset.familyEvent);if(e)openEventSummary(e);});
 }
 function renderCalendarAdmin() {
  if(member?.role!=='owner')return;
