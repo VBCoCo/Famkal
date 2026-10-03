@@ -18,7 +18,7 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   grant usage on schema auth to authenticated,anon,service_role;grant execute on function auth.uid(),auth.role() to authenticated,anon,service_role;
   create function gen_random_bytes(n int) returns bytea language sql volatile as $$select decode(left(replace(gen_random_uuid()::text,'-','')||replace(gen_random_uuid()::text,'-',''),n*2),'hex')$$;`);
   await db.exec(fs.readFileSync(new URL('supabase.txt',root),'utf8').replace('create extension if not exists pgcrypto;',''));
-  for(const p of fs.readdirSync(new URL('supabase/migrations/',root)).filter(x=>x.endsWith('.sql')&&!/v170|schedule_v160/.test(x)).sort()){
+  for(const p of fs.readdirSync(new URL('supabase/migrations/',root)).filter(x=>x.endsWith('.sql')&&!/v170|v173|schedule_v160/.test(x)).sort()){
    let sql=fs.readFileSync(new URL('supabase/migrations/'+p,root),'utf8').replace(/create extension if not exists pg_cron;/g,'').replace(/create extension if not exists pg_net with schema extensions;/g,'');
    if(p.includes('activate_invite'))sql="select set_config('famkal.auth_config_verified','yes',true);\n"+sql;
    await db.exec(sql);
@@ -31,6 +31,7 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
    insert into public.events(family_id,title,event_type,event_date,start_time,end_time,created_by,assignee_id) values('${family}','Existing','appointment','2026-10-04','10:00','11:00','${owner}','${owner}');`);
   const original=(await query('select to_jsonb(e) value from public.events e'))[0].value;
   await db.exec(fs.readFileSync(new URL('supabase/migrations/20261003063035_family_calendars_v170.sql',root),'utf8'));
+  await db.exec(fs.readFileSync(new URL('supabase/migrations/20261003080822_calendar_trigger_fix_v173.sql',root),'utf8'));
   const after=(await query('select to_jsonb(e) value from public.events e'))[0].value;delete after.blocks_time;assert.deepEqual(after,original);
   assert.equal((await query('select count(*)::int n from public.event_calendars'))[0].n,1);
   assert.equal((await query('select count(*)::int n from public.event_assignments where person_id is not null'))[0].n,1);
@@ -88,6 +89,25 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   assert.ok(!recipients.some(r=>r.event_id===group&&r.user_id===anna));
   assert.equal((await query("select has_function_privilege('anon','public.manage_calendar(uuid,text,text,integer,boolean,boolean)','execute') allowed"))[0].allowed,false);
   assert.equal((await query("select has_function_privilege('authenticated','public.prepare_family_access_link_v170(uuid,text,text,uuid,uuid)','execute') allowed"))[0].allowed,false);
-  await db.exec('rollback');await db.exec(fs.readFileSync(new URL('tests/family-calendars-production.sql',root),'utf8'));console.log(checks+' PostgreSQL checks plus 19 isolated production checks passed');
+  // Finish the transaction: deferred checks MUST run, not disappear on rollback.
+  await db.exec('commit');
+  for(const scope of ['single','following','series']){
+    await db.exec('begin');await as(owner);
+    const created=(await query("select public.save_calendar_event_v170($1::jsonb,null,'single','daily','2027-01-03') id",[JSON.stringify({...base,calendar_ids:[leo.id],title:'Series commit '+scope})]))[0].id;
+    await db.exec('commit');await db.exec('begin');await as(owner);
+    const current=(await query('select updated_at::text stamp from public.events where id=$1',[created]))[0].stamp;
+    await query("select public.save_calendar_event_v170($1::jsonb,$2::uuid,$3) id",[JSON.stringify({...base,calendar_ids:[leo.id],expected_updated_at:current,title:'Committed '+scope}),created,scope]);
+    await db.exec('commit');await db.exec('reset role');
+    const saved=await query('select title from public.events where id=$1',[created]);assert.equal(saved[0].title,'Committed '+scope);
+  }
+  // Removing the last calendar remains forbidden at COMMIT and rolls back.
+  await db.exec('reset role;begin');await db.query('delete from public.event_calendars where event_id=$1',[own]);
+  await assert.rejects(db.exec('commit'),/Termin benötigt einen Kalender/);await db.exec('rollback');
+  assert.equal((await query('select count(*)::int n from public.event_calendars where event_id=$1',[own]))[0].n,1);
+  await db.exec('begin');
+  await db.query("insert into public.events(family_id,title,event_type,event_date,start_time,end_time,created_by) values($1,'Missing initial calendar','appointment','2030-01-01','10:00','11:00',$2)",[family,owner]);
+  await assert.rejects(db.exec('commit'),/Termin benötigt einen Kalender/);await db.exec('rollback');
+  assert.equal((await query("select count(*)::int n from public.events where title='Missing initial calendar'"))[0].n,0);
+  await db.exec(fs.readFileSync(new URL('tests/family-calendars-production.sql',root),'utf8'));console.log(checks+' PostgreSQL checks plus 22 isolated production checks passed');
  }finally{await db.close();}
 });

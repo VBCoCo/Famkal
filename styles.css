@@ -36,3 +36,8 @@ dialog{inset:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-lef
  nav{padding-top:3px;padding-bottom:calc(3px + var(--safe-bottom))}nav button{display:flex;min-height:32px;height:32px;justify-content:center;gap:4px;font-size:16px}nav button small{font-size:10px}nav .add{width:32px;height:32px;flex:0 0 32px;border-radius:10px;font-size:22px;margin-top:0}
  #eventSummaryDialog{width:min(680px,calc(100% - 24px - var(--safe-left) - var(--safe-right)));padding:10px 14px}.event-facts{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 12px}
 }
+
+/* Avoid accidental double-tap zoom; manipulation retains pan and pinch zoom. */
+.app,.auth,dialog,button,a,input,select,textarea,summary{touch-action:manipulation}
+/* iOS focuses small input text by zooming. Override compact field rules too. */
+input,select,textarea{font-size:16px!important}

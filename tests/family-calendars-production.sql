@@ -42,8 +42,18 @@ begin
  if exists(select 1 from public.event_assignments where event_id=eid and person_id=member_p and role='to') then raise exception 'Task release failed';end if;n:=n+1;
  reset role;perform set_config('request.jwt.claim.sub',outsider_id::text,true);set local role authenticated;
  if exists(select 1 from public.events where family_id=f) or exists(select 1 from public.calendars where family_id=f) then raise exception 'Cross-family RLS leak';end if;n:=n+1;
+ reset role;perform set_config('request.jwt.claim.sub',owner_id::text,true);set local role authenticated;
+ eid:=public.save_calendar_event_v170(data||jsonb_build_object('calendar_ids',jsonb_build_array(leo_c)),null,'single','daily','2030-01-03');
+ select updated_at::text into stamp from public.events where id=eid;
+ perform public.save_calendar_event_v170(data||jsonb_build_object('calendar_ids',jsonb_build_array(leo_c),'expected_updated_at',stamp,'title','Single update'),eid,'single');n:=n+1;
+ select updated_at::text into stamp from public.events where id=eid;
+ perform public.save_calendar_event_v170(data||jsonb_build_object('calendar_ids',jsonb_build_array(leo_c),'expected_updated_at',stamp,'title','Following update'),eid,'following');n:=n+1;
+ select updated_at::text into stamp from public.events where id=eid;
+ perform public.save_calendar_event_v170(data||jsonb_build_object('calendar_ids',jsonb_build_array(leo_c),'expected_updated_at',stamp,'title','Whole series update'),eid,'series');n:=n+1;
  reset role;
  if has_function_privilege('anon','public.manage_calendar(uuid,text,text,integer,boolean,boolean)','execute') or has_function_privilege('authenticated','public.prepare_family_access_link_v170(uuid,text,text,uuid,uuid)','execute') then raise exception 'Privileged RPC exposed';end if;n:=n+1;
  raise notice '% isolated 1.7 checks passed',n;
 end $$;
+-- Force the same deferred calendar checks a real COMMIT invokes.
+set constraints all immediate;
 rollback;

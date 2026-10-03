@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.2
+# Leonhards Familienkalender — Famkal 1.7.3
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -396,3 +396,7 @@ Gemeinsame Kopfzeile mit kleinem Ansichtstitel, Kalenderauswahl und Profil; flac
 ## Querformat und kompakte Termindetails (1.7.2)
 
 Querformat erkennt die Oberfläche automatisch: Kopfzeile und Filter in einer Zeile, flache Datumsnavigation und untere Navigation. iPhone-Sicherheitsränder für Dynamic Island werden in allen Ansichten und Dialogen berücksichtigt. Spaltenberechnung verwendet tatsächliche Terminzeiten ohne künstliche Mindestüberschneidung. Kurze Termine behalten ihre Zeitfläche. Antippen in der Familienübersicht öffnet kompakte Angaben; Bearbeiten öffnet erst danach das Formular. Lange Notizen aufklappbar. Daten und Berechtigungen unverändert.
+
+## Speichern und Zoom (1.7.3)
+
+Gemeinsame Kalenderprüfung behandelt NEW.id und OLD.event_id in getrennten Triggerzweigen. Termin-/Serienänderungen schließen wieder erfolgreich ab; Pflicht-Kalenderzuordnung bleibt geschützt. Regression prüft echte COMMITs für Einzeltermin, folgende Termine und gesamte Serie sowie Ablehnung fehlender Kalender. Produktive isolierte Prüfung erzwingt verzögerte Constraints vor ROLLBACK. Touch-action manipulation verhindert Doppeltipp-Zoom und erhält Zwei-Finger-Zoom; Eingabefelder mindestens 16px gegen iPhone-Fokus-Zoom.
