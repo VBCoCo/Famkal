@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.7.0';
 export function localDate(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
@@ -21,12 +21,13 @@ export function assignmentIds(event,role) {
   if(Array.isArray(event.assignments))return [...new Set(event.assignments.filter(a=>a.role===role).map(a=>a.person_id||a.member_user_id||a.test_member_id).filter(Boolean))];
   return [event[{assignee:'assignee_id',to:'transport_to_id',from:'transport_from_id'}[role]]].filter(Boolean);
 }
-export function assignedTo(event, userId) { return !!userId && (event.assignee_all || ['assignee','to','from'].some(role=>assignmentIds(event,role).includes(userId))); }
+export function assignedTo(event, userId) { return !!userId && ((event.calendar_people||[]).includes(userId) || (event.assignee_all && (!event.all_task_person_ids||event.all_task_person_ids.includes(userId))) || ['assignee','to','from'].some(role=>assignmentIds(event,role).includes(userId))); }
 export function eventRoles(event, userId) {
   return [['to','Bringen'],['from','Abholen'],['assignee','Zuständig']]
-    .filter(([role])=>(role==='assignee'&&event.assignee_all)||assignmentIds(event,role).some(id=>!userId||id===userId)).map(([,label])=>label);
+    .filter(([role])=>(role==='assignee'&&event.assignee_all&&(!userId||!event.all_task_person_ids||event.all_task_person_ids.includes(userId)))||assignmentIds(event,role).some(id=>!userId||id===userId)).map(([,label])=>label);
 }
 export function openAssignment(event) {
+  if(event.requires_assignment===false&&['appointment','school','vacation'].includes(event.event_type))return '';
   if(event.event_type==='transport' && !assignmentIds(event,'to').length && !assignmentIds(event,'from').length) return 'Fahrt ungeklärt';
   if(['care','bedtime'].includes(event.event_type) && !event.assignee_all && !assignmentIds(event,'assignee').length) return 'Zuständigkeit offen';
   return eventRoles(event).length ? '' : 'Zuständigkeit offen';
@@ -49,12 +50,30 @@ export function cardTime(event,day=event.event_date) {
   return eventTime(event)+(eventEndDate(event)>event.event_date?' → '+dateAtNoon(eventEndDate(event)).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+(event.end_time?' '+event.end_time.slice(0,5):''):'');
 }
 export function assignmentColors(event,people,userId) {
-  const ids=event.assignee_all?people.map(p=>p.user_id):[...assignmentIds(event,'assignee'),...assignmentIds(event,'to'),...assignmentIds(event,'from')];
+  const ids=event.assignee_all?people.filter(p=>p.include_in_all_tasks!==false).map(p=>p.user_id):[...assignmentIds(event,'assignee'),...assignmentIds(event,'to'),...assignmentIds(event,'from')];
   const colors=[...new Set(ids.map(id=>safeColor(people.find(p=>p.user_id===id)?.color)))];
   if(!colors.length)return '#888888';
-  return colors.length===1?colors[0]:'linear-gradient(135deg,'+colors.join(',')+')';
+  return colors.length===1?colors[0]:'linear-gradient(180deg,'+colors.join(',')+')';
 }
 export function nextEvent(events, now = new Date()) {
   const today=localDate(now);
   return events.find(e=>e.event_date===today && !e.all_day && e.start_time && new Date(`${e.event_date}T${e.start_time}`)>=now);
+}
+
+export function daySegment(event,day) {
+ if(!eventOnDay(event,day)||event.all_day)return null;
+ const minute=t=>Number(t.slice(0,2))*60+Number(t.slice(3,5));
+ return {start:day===event.event_date?minute(event.start_time||'00:00'):0,
+ end:day===eventEndDate(event)?minute(event.end_time||'24:00'):1440};
+}
+export function layoutDayEvents(events,day) {
+ const rows=events.map(event=>({event,...daySegment(event,day)})).filter(x=>Number.isFinite(x.start)&&x.end>x.start).sort((a,b)=>a.start-b.start||b.end-a.end);
+ let group=[],ends=[];
+ const finish=()=>{for(const row of group)row.lanes=ends.length;group=[];ends=[];};
+ for(const row of rows){
+  if(group.length&&ends.every(end=>end<=row.start))finish();
+  let lane=ends.findIndex(end=>end<=row.start);if(lane<0)lane=ends.length;
+  row.lane=lane;ends[lane]=Math.max(row.end,row.start+32);group.push(row);
+ }
+ finish();return rows;
 }

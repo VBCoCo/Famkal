@@ -23,7 +23,7 @@ test('card border stays transparent across the complete stylesheet for every ass
     }
     assert.equal(dom.window.document.getElementById('card0').style.getPropertyValue('--assignment'),'#0061fe');
     assert.equal(dom.window.document.getElementById('card1').style.getPropertyValue('--assignment'),'#ff69b4');
-    assert.equal(dom.window.document.getElementById('card2').style.getPropertyValue('--assignment'),'linear-gradient(135deg,#0061fe,#ff69b4)');
+    assert.equal(dom.window.document.getElementById('card2').style.getPropertyValue('--assignment'),'linear-gradient(180deg,#0061fe,#ff69b4)');
     assert.equal(dom.window.getComputedStyle(dom.window.document.getElementById('cancelled')).getPropertyValue('--event-surface'),'#f3f3f3');
   } finally {dom.window.close();}
 });

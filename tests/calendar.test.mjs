@@ -10,7 +10,7 @@ test('all and normalized multiple assignment reach every selected user',()=>{
  const multi={assignments:[{role:'assignee',member_user_id:'u1'},{role:'assignee',member_user_id:'u2'},{role:'to',test_member_id:'pink'}]};
  assert.equal(assignedTo(multi,'u2'),true);assert.equal(assignedTo(multi,'u3'),false);assert.equal(openAssignment(multi),'');
  assert.equal(assignedTo({assignee_all:true},'u3'),true);assert.equal(isTask({assignee_all:true}),true);
- assert.equal(assignmentColors(multi,[{user_id:'u1',color:'#0066ff'},{user_id:'u2',color:'#ff0000'},{user_id:'pink',color:'#ff69b4'}]),'linear-gradient(135deg,#0066ff,#ff0000,#ff69b4)');
+ assert.equal(assignmentColors(multi,[{user_id:'u1',color:'#0066ff'},{user_id:'u2',color:'#ff0000'},{user_id:'pink',color:'#ff69b4'}]),'linear-gradient(180deg,#0066ff,#ff0000,#ff69b4)');
  assert.ok(!assignmentColors({assignee_all:true},[{user_id:'x',color:'url(secret)'}]).includes('secret'));
 });
 test('overnight and inclusive all-day spans cross days and daylight-saving changes',()=>{
@@ -61,4 +61,20 @@ test('all-day display ignores residual times and next event ignores past items',
   const events=[{event_date:'2026-10-01',start_time:'09:00:00'}, {event_date:'2026-10-01',all_day:true,start_time:'15:00:00'}, {event_date:'2026-10-01',start_time:'16:00:00'}];
   assert.equal(nextEvent(events,now),events[2]);
   assert.equal(nextEvent(events.slice(0,2),now),undefined);
+});
+
+test('personal calendars distinguish ownership from responsibility and All membership',async()=>{
+ const {assignedTo,eventRoles,openAssignment}=await import('../calendar-utils.js');
+ const own={calendar_people:['leo'],all_task_person_ids:['robert'],assignee_all:true};
+ assert.equal(assignedTo(own,'leo'),true);assert.equal(assignedTo(own,'anna'),false);
+ assert.deepEqual(eventRoles(own,'leo'),[]);assert.deepEqual(eventRoles(own,'robert'),['Zuständig']);
+ assert.equal(openAssignment({event_type:'appointment',requires_assignment:false}),'');
+});
+test('family timeline clips overnight events and separates overlapping appointments',async()=>{
+ const {daySegment,layoutDayEvents}=await import('../calendar-utils.js');
+ const night={event_date:'2026-10-04',end_date:'2026-10-05',start_time:'20:15',end_time:'06:30'};
+ assert.deepEqual(daySegment(night,'2026-10-05'),{start:0,end:390});
+ const a={event_date:'2026-10-05',start_time:'10:00',end_time:'11:00'},b={...a,start_time:'10:30',end_time:'11:30'},c={...a,start_time:'12:00',end_time:'13:00'};
+ const rows=layoutDayEvents([a,b,c],'2026-10-05');assert.equal(rows[0].lanes,2);assert.notEqual(rows[0].lane,rows[1].lane);assert.equal(rows[2].lanes,1);
+ assert.equal(daySegment({...a,all_day:true},'2026-10-05'),null);
 });

@@ -22,8 +22,8 @@ export async function requestRecoveryEmail(sb,email) {
  if(result.error&&(!result.error.status||result.error.status>=500)) throw new Error('Die Anfrage konnte gerade nicht abgeschlossen werden. Bitte Verbindung prüfen und später erneut versuchen. Du kannst dich auch an deinen Familien-Administrator wenden.');
  return RECOVERY_MESSAGE;
 }
-export async function requestAccessLink(sb,action,target) {
- const result=await sb.functions.invoke('family-access',{body:action==='invite'?{action,email:target}:{action,target_user_id:target}});
+export async function requestAccessLink(sb,action,target,calendarId) {
+ const result=await sb.functions.invoke('family-access',{body:action==='invite'?{action,email:target,calendar_id:calendarId}:{action,target_user_id:target}});
  if(result.error) {
   let message='Link konnte nicht erstellt werden. Bitte Rechte und Verbindung prüfen.';
   try { const details=await result.error.context?.json();if(details?.error)message=details.error; }catch{}

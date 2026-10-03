@@ -14,13 +14,15 @@ export function makeHandler(createClient,env) {
    const raw=await request.text();
    if(raw.length>2048) return reply(413,{error:'Anfrage zu groß'});
    let body;try{body=JSON.parse(raw);}catch{return reply(400,{error:'Ungültige Anfrage'});}
+   const calendarId=body.calendar_id;
+   if(body.action==='invite'&&(typeof calendarId!=='string'||!/^[a-f0-9-]{36}$/i.test(calendarId)))return reply(400,{error:'Bitte einen Kalender wählen'});
    const email=typeof body.email==='string'?body.email.trim().toLowerCase():'';
    if(!['invite','recovery'].includes(body.action)||(body.action==='invite'&&(email.length>254||!/^\S+@[^\s@]+\.[^\s@]+$/.test(email)))||(body.action==='recovery'&&(typeof body.target_user_id!=='string'||!/^[a-f0-9-]{36}$/i.test(body.target_user_id))))return reply(400,{error:'Aktion und gültiges Ziel erforderlich'});
    const privileged=createClient(env('SUPABASE_URL'),env('SUPABASE_SERVICE_ROLE_KEY'),{auth:{persistSession:false,autoRefreshToken:false}});
    const auth=await privileged.auth.getUser(bearer);
    if(auth.error||!auth.data?.user) return reply(401,{error:'Anmeldung abgelaufen'});
    // Authorization, family boundaries and rate limits are checked in PostgreSQL.
-   const prepared=await privileged.rpc('prepare_family_access_link',{p_actor:auth.data.user.id,p_email:email,p_action:body.action,p_target_user:body.action==='recovery'?body.target_user_id:null});
+   const prepared=await privileged.rpc('prepare_family_access_link_v170',{p_actor:auth.data.user.id,p_email:email,p_action:body.action,p_target_user:body.action==='recovery'?body.target_user_id:null,p_calendar:body.action==='invite'?calendarId:null});
    if(prepared.error)return reply(403,{error:prepared.error.message});
    const ticket=prepared.data;
    const generated=await privileged.auth.admin.generateLink({type:ticket.link_type,email:ticket.email,options:{redirectTo:APP}});

@@ -14,12 +14,13 @@ function fixture({rows=[],rpcResult=null,rpcError=null}={}) {
   w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
   w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');this.dispatchEvent(new w.Event('close'));};
   const sb={auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>{},signOut:async()=>({data:{}}),verifyOtp:async()=>({data:{session:{},user:{id:'u1'}}}),setSession:async data=>{calls.push({action:'reset-session'});return {data:{session:{},user:{id:'u1'}}};},resetPasswordForEmail:async(email,options)=>{calls.push({action:'recovery-mail',email,options});return {data:{}};},updateUser:async data=>{calls.push({action:'password',length:data.password.length});return {data:{}};}},from(table){
-    const q={action:'read',filters:[],select(){return this;},eq(...args){this.filters.push(args);return this;},gte(){return this;},lte(){return this;},or(){return this;},order(){return this;},range(){return this;},update(){this.action='update';return this;},insert(){this.action='insert';return this;},delete(){this.action='delete';return this;},maybeSingle(){return this;},single(){return this;},then(resolve){calls.push({table,action:this.action});return Promise.resolve({data:table==='family_members'&&this.action==='read'?[member]:rows,error:null}).then(resolve);}};
+    const q={action:'read',filters:[],select(){return this;},eq(...args){this.filters.push(args);return this;},gte(){return this;},lte(){return this;},or(){return this;},order(){return this;},range(){return this;},update(){this.action='update';return this;},insert(){this.action='insert';return this;},delete(){this.action='delete';return this;},maybeSingle(){return this;},single(){return this;},then(resolve){calls.push({table,action:this.action});return Promise.resolve({data:table==='family_members'&&this.action==='read'?[member]:table==='calendars'?calendarFixture:table==='family_people'?[]:rows,error:null}).then(resolve);}};
     return q;
   },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:rpcResult,error:rpcError};}};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
+  const calendarFixture=[{id:'leo',person_id:'leo-person',display_name:'Leo',is_active:true,allow_family_create:true},{id:'robert',person_id:'u1',display_name:'Robert',is_active:true}];
   Object.assign(w,{...utils,...links,mountPushSettings,disablePushDevice,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
-  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={start,openSettings,openNotificationEvent,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
+  w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={renderFamily,setCalendarSelection,editCalendar,validateEvent,setCalendars(value,people){calendars=value;profiles=people;selectedCalendars=value.map(c=>c.id);},start,openSettings,openNotificationEvent,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];calendars=[{id:"leo",person_id:"leo-person",display_name:"Leo",is_active:true,allow_family_create:true},{id:"robert",person_id:"u1",display_name:"Robert",is_active:true}];selectedCalendars=["leo","robert"];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
@@ -37,7 +38,7 @@ test('overnight custom series sends end date, weekday selection and multiple ass
   const d=f.w.document;d.querySelector('#eventTitle').value='Schlafen';d.querySelector('#eventDate').value='2026-10-04';d.querySelector('#eventEndDate').value='2026-10-05';d.querySelector('#startTime').value='20:00';d.querySelector('#endTime').value='06:00';d.querySelector('#recurrence').value='custom';d.querySelector('#recurrenceEnd').value='2026-10-08';
   d.querySelectorAll('#assigneePeople input').forEach(x=>x.checked=true);d.querySelectorAll('#weekdayChoices input').forEach(x=>x.checked=['7','1','2','3','4'].includes(x.value));
   d.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,20));
-  const call=f.calls.find(x=>x.name==='save_calendar_event');assert.ok(call);assert.equal(call.args.p_event.end_date,'2026-10-05');assert.equal(call.args.p_event.assignments.length,2);assert.equal(call.args.p_weekdays.length,5);assert.ok(call.args.p_weekdays.includes(7));
+  const call=f.calls.find(x=>x.name==='save_calendar_event_v170');assert.ok(call);assert.equal(call.args.p_event.end_date,'2026-10-05');assert.equal(call.args.p_event.assignments.length,2);assert.equal(call.args.p_weekdays.length,5);assert.ok(call.args.p_weekdays.includes(7));
  }finally{f.close();}
 });
 test('All clears individuals, fake people can be selected and stale edit timestamp is preserved',()=>{
@@ -61,16 +62,16 @@ test('cancelled filter persists in every view and includes plain appointments in
 test('holiday preview starts unselected, groups occurrences and only saves reviewed IDs',async()=>{
  const rows=[makeEvent('a',{event_date:'2026-10-04',series_id:'s',updated_at:'2026-10-02'}),makeEvent('b',{event_date:'2026-10-05',series_id:'s',updated_at:'2026-10-02'}),makeEvent('outside',{event_date:'2026-10-10'}),makeEvent('cancelled',{event_date:'2026-10-05',is_cancelled:true})];
  const f=fixture({rows,rpcResult:'holiday'});try{
-  await f.w.testApp.vacationPreview({family_id:'f1',event_type:'vacation',title:'Urlaub',event_date:'2026-10-04',end_date:'2026-10-06',all_day:true});
-  const d=f.w.document;assert.equal(d.querySelectorAll('[data-vacation-id]').length,2);assert.equal(d.querySelectorAll('[data-vacation-id]:checked').length,0);assert.ok(!f.calls.some(x=>x.name==='save_calendar_event'));
+  await f.w.testApp.vacationPreview({family_id:'f1',event_type:'vacation',title:'Urlaub',event_date:'2026-10-04',end_date:'2026-10-06',all_day:true,calendar_ids:['leo']});
+  const d=f.w.document;assert.equal(d.querySelectorAll('[data-vacation-id]').length,2);assert.equal(d.querySelectorAll('[data-vacation-id]:checked').length,0);assert.ok(!f.calls.some(x=>x.name==='save_calendar_event_v170'));
   d.querySelector('[data-vacation-group]').click();d.querySelector('#vacationNext').click();assert.match(d.querySelector('#vacationSave').textContent,/2 Termine absagen/);
-  d.querySelector('#vacationSave').click();await new Promise(r=>setTimeout(r,20));const call=f.calls.find(x=>x.name==='save_calendar_event');assert.equal(call.args.p_cancel.length,2);assert.ok(call.args.p_cancel.every(x=>['a','b'].includes(x.id)&&x.updated_at));
+  d.querySelector('#vacationSave').click();await new Promise(r=>setTimeout(r,20));const call=f.calls.find(x=>x.name==='save_calendar_event_v170');assert.equal(call.args.p_cancel.length,2);assert.ok(call.args.p_cancel.every(x=>['a','b'].includes(x.id)&&x.updated_at));
  }finally{f.close();}
 });
 test('holiday failure remains in foreground, cancel or preview alone never writes',async()=>{
  const f=fixture({rpcError:{message:'Auswahl veraltet'}});try{
-  const data={family_id:'f1',event_type:'vacation',title:'Urlaub',event_date:'2026-10-04',end_date:'2026-10-06',all_day:true};
-  await f.w.testApp.vacationPreview(data);f.w.document.querySelector('[data-close=vacationDialog]').click();assert.ok(!f.calls.some(x=>x.name==='save_calendar_event'));
+  const data={family_id:'f1',event_type:'vacation',title:'Urlaub',event_date:'2026-10-04',end_date:'2026-10-06',all_day:true,calendar_ids:['leo']};
+  await f.w.testApp.vacationPreview(data);f.w.document.querySelector('[data-close=vacationDialog]').click();assert.ok(!f.calls.some(x=>x.name==='save_calendar_event_v170'));
   await f.w.testApp.vacationPreview(data);f.w.document.querySelector('#vacationNext').click();f.w.document.querySelector('#vacationSave').click();await new Promise(r=>setTimeout(r,10));
   assert.equal(f.w.document.querySelector('#vacationDialog').open,true);assert.match(f.w.document.querySelector('#vacationDialog [role=alert]').textContent,/veraltet/);
  }finally{f.close();}
@@ -152,7 +153,7 @@ test('member cannot choose following or whole-series scope',()=>{
 });
 test('zero-row update is not reported as saved',async()=>{
   const f=fixture();try {
-    f.w.testApp.openEvent({id:'e1',created_by:'u1',event_date:'2026-10-01',title:'Test',event_type:'appointment',all_day:true,reminders:[]});
+    f.w.testApp.openEvent({calendar_links:[{calendar_id:'leo'}],id:'e1',created_by:'u1',event_date:'2026-10-01',title:'Test',event_type:'appointment',all_day:true,reminders:[]});
     f.w.document.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));
     await new Promise(resolve=>setTimeout(resolve,20));
     assert.match(f.w.document.querySelector('#eventDialog [role=alert]').textContent,/Nicht gespeichert/);
@@ -165,7 +166,7 @@ test('overnight validation error is visible inside the modal and preserves input
   f.w.document.querySelector('#startTime').value='20:00';f.w.document.querySelector('#endTime').value='06:00';
   f.w.document.querySelector('#eventForm').dispatchEvent(new f.w.Event('submit',{cancelable:true}));
   await new Promise(r=>setTimeout(r,10));
-  assert.match(f.w.document.querySelector('#eventDialog [role=alert]').textContent,/Ende/);
+  assert.match(f.w.document.querySelector('#eventDialog [role=alert]').textContent,/Minute|Ende/);
   assert.equal(f.w.document.querySelector('#eventDialog').open,true);
   assert.equal(f.w.document.querySelector('#eventTitle').value,'Bettgehzeit');
   assert.equal(f.w.document.querySelector('#startTime').value,'20:00');
@@ -184,13 +185,13 @@ test('week navigation triggers a new backend read',async()=>{
 test('series metadata is visible but ineffective recurrence changes are disabled',()=>{
   const f=fixture();try {
     f.w.testApp.setSeries([{id:'s1',recurrence:'weekly',ends_on:'2027-01-01'}]);
-    f.w.testApp.openEvent({id:'e1',series_id:'s1',created_by:'u1',title:'Test',event_date:'2026-10-01',reminders:[]});
+    f.w.testApp.openEvent({calendar_links:[{calendar_id:'leo'}],id:'e1',series_id:'s1',created_by:'u1',title:'Test',event_date:'2026-10-01',reminders:[]});
     assert.equal(f.w.document.querySelector('#recurrence').value,'weekly');
     assert.equal(f.w.document.querySelector('#recurrence').disabled,true);
     assert.equal(f.w.document.querySelector('#recurrenceEnd').value,'2027-01-01');
   }finally{f.close();}
 });
-const makeEvent=(id,extra={})=>({id,title:id,event_date:utils.localDate(utils.addDays(new Date(),1)),event_type:'appointment',start_time:'15:00:00',created_by:'u1',reminders:[],...extra});
+const makeEvent=(id,extra={})=>({id,title:id,event_date:utils.localDate(utils.addDays(new Date(),1)),event_type:'appointment',start_time:'15:00:00',created_by:'u1',reminders:[],end_time:'16:00:00',calendar_links:[{calendar_id:'leo'}],...extra});
 test('empty today still shows upcoming assigned appointments and more works',()=>{
  const f=fixture();try{
   f.w.testApp.setEvents(Array.from({length:7},(_,n)=>makeEvent('future'+n,{assignee_id:'u1'})));
@@ -272,5 +273,32 @@ test('notification deep link opens its event after membership and removes the UR
   const id='11111111-1111-4111-8111-111111111111';
   f.dom.reconfigure({url:'https://vbcoco.github.io/Famkal/?event='+id});f.w.testApp.setEvents([makeEvent(id,{title:'Push target',assignee_id:'u1'})]);
   await f.w.testApp.openNotificationEvent();assert.equal(f.w.document.querySelector('#eventDialog').open,true);assert.equal(f.w.document.querySelector('#eventTitle').value,'Push target');assert.equal(new URL(f.w.location.href).searchParams.has('event'),false);
+ }finally{f.close();}
+});
+test('four calendars render independent columns and visibility selection persists',()=>{
+ const f=fixture();try{
+  const profiles=[{id:'p1',linked_user_id:'u1',display_name:'Robert',color:'#0061fe',is_active:true,include_in_all_tasks:true}];
+  const names=['Leo','Robert','Anna','Oma Lena'],cals=names.map((display_name,i)=>({id:'c'+i,person_id:i===1?'p1':'p'+i,display_name,is_active:true,allow_family_create:i===0}));
+  f.w.testApp.setCalendars(cals,profiles);f.w.testApp.renderFamily();
+  assert.equal(f.w.document.querySelectorAll('.family-column-heading').length,4);
+  assert.equal(f.w.document.querySelector('.family-column-heading').textContent,'Leo');
+  f.w.testApp.setCalendarSelection(['c1']);assert.equal(f.w.document.querySelectorAll('.family-column-heading').length,1);
+  assert.equal(f.w.localStorage.getItem('famkal-calendars-u1'),'["c1"]');
+  f.w.testApp.openEvent();assert.equal(f.w.document.querySelector('#eventCalendars input:checked').value,'c1');
+ }finally{f.close();}
+});
+test('calendar management defaults to no All responsibility and preserves archive intent',()=>{
+ const f=fixture();try{
+  f.w.testApp.editCalendar();assert.equal(f.w.document.querySelector('#calAll').checked,false);assert.equal(f.w.document.querySelector('#calActive').checked,true);
+  assert.match(f.w.document.querySelector('#settingsContent').textContent,/bestehende/);
+ }finally{f.close();}
+});
+test('start and end times are required and one-minute appointments are accepted',()=>{
+ const f=fixture();try{
+  f.w.testApp.openEvent();assert.equal(f.w.document.querySelector('#endTime').required,true);
+  const base={title:'Hint',event_date:'2026-10-03',end_date:'2026-10-03',start_time:'10:00',end_time:'10:01',calendar_ids:['leo'],reminders:[]};
+  assert.doesNotThrow(()=>f.w.testApp.validateEvent(base));
+  assert.throws(()=>f.w.testApp.validateEvent({...base,end_time:null}),/Pflicht/);
+  assert.throws(()=>f.w.testApp.validateEvent({...base,end_time:'10:00'}),/Minute/);
  }finally{f.close();}
 });

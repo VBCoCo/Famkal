@@ -345,3 +345,46 @@ HTTPS ist aktiv. CSP wird als Meta-Tag gesetzt. GitHub Pages erlaubt keine freie
 Security-Response-Header; frame-ancestors kann daher hier nicht per Meta-Tag
 erzwungen werden. Eine andere Hostinglösung ist dafür später optional, nicht
 Voraussetzung für diese Bereinigung.
+
+## Version 1.7.0 – persönliche Familienkalender
+
+Vier verwaltete Startkalender: Leo, Robert, Anna, Oma Lena. Die Migration ordnet
+alle vorhandenen Termine und Serien Leo zu und erhält ihre IDs, Inhalte,
+Zeiten, Aufgabenverknüpfungen und Geräte. Dauerhafte `family_people`-Profile
+sind unabhängig vom Login. `calendars`, `event_calendars` und `series_calendars`
+trennen Kalenderzugehörigkeit von Bringt/Holt/Zuständig. Persönliche Einladungslinks
+binden das bestätigte Konto atomar an das vorhandene Profil; keine automatische
+Einladungs-Mail. Owner verwaltet Kalender, Namen, Reihenfolge und Archivierung.
+
+Familienmitglieder dürfen im eigenen Kalender und bei Leo anlegen. Bei Leo
+bearbeiten/absagen sie ihre selbst erstellten Einträge; bei eigenen Kalendern
+ihre persönlichen Termine. Gemeinsame Termine erfordern Rechte für sämtliche
+betroffenen Kalender. Aufgabe allein gibt keine Bearbeitungsrechte. Eine
+separate Selbstzuordnung verändert nur die eigene Aufgabe. Serienoperationen
+bleiben Owner-Aufgaben; einzelne Termine sind nach den Kalenderrechten editierbar.
+
+`include_in_all_tasks` definiert die separat verwaltete Alle-Gruppe. Anfangs nur
+bisherige Mitglieder und Testmitglieder. Neue Kalender/Logins erweitern diese
+Gruppe nicht automatisch. Kalenderinhaber erhalten eigene Terminerinnerungen
+auch ohne Aufgabenrolle, sofern sie ein Gerät aktiviert haben. Kein doppelter
+Versand bei mehreren Rollen. Neue Zuordnungs-/Änderungsmitteilungen bleiben offen.
+
+Familie zeigt eine Tageszeitachse mit Personenspalten, Übernacht-Clipping,
+nebeneinander dargestellten Überschneidungen und horizontaler Verschiebung auf
+kleinen Geräten. Kalenderauswahl wird pro Konto auf dem Gerät gespeichert.
+Leere Zeit bedeutet keinen Eintrag, nicht bestätigte Verfügbarkeit. Hinweise
+können `blocks_time=false` nutzen. Zeitgebundene Termine benötigen Start und Ende
+mit mindestens einer Minute Dauer. Ganztägige Enddaten bleiben inklusiv.
+
+Tests: `npm test`, einschließlich reproduzierbarer PostgreSQL-17-Prüfung mit
+PGlite und synthetischen Konten. Lokale Stubs ersetzen ausschließlich Supabase-
+Auth-/Vault-Infrastruktur und Extension-Installation. Prod-Prüfung mit isolierten
+Fixtures in BEGIN/ROLLBACK; keine echten Geräte oder Einladungen ansprechen.
+Alte Mutations-RPCs und direkte Spalten-Schreibrechte sind geschlossen.
+PWA aktualisieren, falls die alte App zum Neuladen auffordert.
+
+Rücknahme: vor COMMIT Transaktion abbrechen. Nach Nutzung persönlicher Kalender
+keine pauschale Wiederherstellung des alten Datenbestands und kein ungefilterter
+Rücksprung auf die 1.6-Ansicht. Neue Einträge sichern und vorzugsweise eine
+Vorwärtskorrektur bereitstellen. Backups enthalten Familieninhalte und gehören
+nicht ins öffentliche Repository. Kostenloses Supabase-Projekt unverändert.
