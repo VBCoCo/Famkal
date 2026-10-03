@@ -18,7 +18,7 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   grant usage on schema auth to authenticated,anon,service_role;grant execute on function auth.uid(),auth.role() to authenticated,anon,service_role;
   create function gen_random_bytes(n int) returns bytea language sql volatile as $$select decode(left(replace(gen_random_uuid()::text,'-','')||replace(gen_random_uuid()::text,'-',''),n*2),'hex')$$;`);
   await db.exec(fs.readFileSync(new URL('supabase.txt',root),'utf8').replace('create extension if not exists pgcrypto;',''));
-  for(const p of fs.readdirSync(new URL('supabase/migrations/',root)).filter(x=>x.endsWith('.sql')&&!/v170|v173|v175|schedule_v160/.test(x)).sort()){
+  for(const p of fs.readdirSync(new URL('supabase/migrations/',root)).filter(x=>x.endsWith('.sql')&&!/v170|v173|v175|v176|schedule_v160/.test(x)).sort()){
    let sql=fs.readFileSync(new URL('supabase/migrations/'+p,root),'utf8').replace(/create extension if not exists pg_cron;/g,'').replace(/create extension if not exists pg_net with schema extensions;/g,'');
    if(p.includes('activate_invite'))sql="select set_config('famkal.auth_config_verified','yes',true);\n"+sql;
    await db.exec(sql);
@@ -33,7 +33,11 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   await db.exec(fs.readFileSync(new URL('supabase/migrations/20261003063035_family_calendars_v170.sql',root),'utf8'));
   await db.exec(fs.readFileSync(new URL('supabase/migrations/20261003080822_calendar_trigger_fix_v173.sql',root),'utf8'));
   await db.exec(fs.readFileSync(new URL('supabase/migrations/20261003085443_bedtime_reminders_v175.sql',root),'utf8'));
-  const after=(await query('select to_jsonb(e) value from public.events e'))[0].value;delete after.blocks_time;assert.deepEqual(after,original);
+  await db.exec(`insert into public.event_assignments(family_id,event_id,role,person_id,member_user_id) select e.family_id,e.id,r.role,p.id,p.linked_user_id from public.events e join public.family_people p on p.linked_user_id=e.created_by cross join (values('to'),('from')) r(role);`);
+  await db.exec(fs.readFileSync(new URL('supabase/migrations/20261003091547_remove_transport_roles_v176.sql',root),'utf8'));
+  const after=(await query('select to_jsonb(e) value from public.events e'))[0].value;delete after.blocks_time;delete original.transport_to_id;delete original.transport_from_id;assert.deepEqual(after,original);
+  assert.equal((await query("select count(*)::int n from public.event_assignments where role<>'assignee'"))[0].n,0);
+  assert.equal((await query("select count(*)::int n from information_schema.columns where table_schema='public' and table_name='events' and column_name in ('transport_to_id','transport_from_id')"))[0].n,0);
   assert.equal((await query('select count(*)::int n from public.event_calendars'))[0].n,1);
   assert.equal((await query('select count(*)::int n from public.event_assignments where person_id is not null'))[0].n,1);
   assert.equal((await query('select count(*)::int n from public.series_calendars'))[0].n,1);
@@ -69,9 +73,10 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   await save({...base,calendar_ids:[leo.id],expected_updated_at:stamp,title:'Updated by creator'},aLeo);
   await denied('select public.save_calendar_event_v170($1::jsonb,$2)',[JSON.stringify({...base,calendar_ids:[leo.id],expected_updated_at:stamp}),aLeo]);
   await denied('select public.calendar_cancel_v170($1,true)',[overnight]);
-  await query('select public.calendar_self_assign($1,\'to\',true)',[overnight]);
+  await query('select public.calendar_self_assign($1,\'assignee\',true)',[overnight]);
   assert.equal((await query('select person_id from public.event_assignments where event_id=$1',[overnight]))[0].person_id,ac.person_id);
-  await query('select public.calendar_self_assign($1,\'to\',false)',[overnight]);
+  await query('select public.calendar_self_assign($1,\'assignee\',false)',[overnight]);
+  for(const role of ['to','from'])await denied('select public.calendar_self_assign($1,$2,true)',[overnight,role]);
   await denied('select public.calendar_self_assign($1,\'assignee\',true)',[group]);
   await query('select public.calendar_cancel_v170($1,true)',[aOwn]);
   await query('select public.calendar_cancel_v170($1,false)',[aOwn]);
@@ -115,6 +120,6 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   await db.query("insert into public.events(family_id,title,event_type,event_date,start_time,end_time,created_by) values($1,'Missing initial calendar','appointment','2030-01-01','10:00','11:00',$2)",[family,owner]);
   await assert.rejects(db.exec('commit'),/Termin benötigt einen Kalender/);await db.exec('rollback');
   assert.equal((await query("select count(*)::int n from public.events where title='Missing initial calendar'"))[0].n,0);
-  await db.exec(fs.readFileSync(new URL('tests/family-calendars-production.sql',root),'utf8'));console.log(checks+' PostgreSQL checks plus 26 isolated production checks passed');
+  await db.exec(fs.readFileSync(new URL('tests/family-calendars-production.sql',root),'utf8'));console.log(checks+' PostgreSQL checks plus 29 isolated production checks passed');
  }finally{await db.close();}
 });

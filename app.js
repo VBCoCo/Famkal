@@ -125,7 +125,7 @@ const person=id=>allPeople().find(m=>m.user_id===id);
 const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️',vacation:'🏖️'}[type]||'📅');
 function card(event, {mine=false, task=false, day=event.event_date}={}) {
   const chips=[];
-  for(const [role,label] of [['to','Bringt'],['from','Holt'],['assignee','Zuständig']]) for(const id of assignmentIds(event,role))if(!mine||id!==myPersonId())chips.push(label+': '+esc(person(id)?.display_name||'Unbekannt'));
+  for(const [role,label] of [['assignee','Zuständig']]) for(const id of assignmentIds(event,role))if(!mine||id!==myPersonId())chips.push(label+': '+esc(person(id)?.display_name||'Unbekannt'));
   if(event.assignee_all)chips.push('Zuständig: Alle in der Verantwortungsgruppe');
   const open=openAssignment(event), roles=eventRoles(event,mine?myPersonId():undefined);
   return '<article class="event-card'+(event.is_cancelled?' cancelled':'')+'" data-id="'+esc(event.id)+'" style="--assignment:'+assignmentColors(event,allPeople(),user?.id)+'"><details'+(expandedEvents.has(event.id)?' open':'')+'><summary><span class="event-heading"><small>'+
@@ -180,8 +180,7 @@ function groupedCards(list,options) {
   let date='';return list.map(event=>{const day=event.event_date<localDate()?localDate():event.event_date;const heading=day!==date?'<h3>'+dateAtNoon(day).toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'})+'</h3>':'';date=day;return heading+card(event,{...options,day});}).join('');
 }
 function fillPeople() {
-  const opts='<option value="">— ungeklärt —</option>'+allPeople().map(m=>'<option value="'+esc(m.user_id)+'">'+esc(m.display_name)+(m.is_test?' (Test)':'')+'</option>').join('');
-  if(!$('#eventDialog').open){['transportTo','transportFrom'].forEach(id=>$('#'+id).innerHTML=opts);$('#assigneePeople').innerHTML=allPeople().map(m=>'<label class="checkbox-label"><input type="checkbox" value="'+esc(m.user_id)+'">'+esc(m.display_name)+(m.is_test?' (Test)':'')+'</label>').join('');}
+  if(!$('#eventDialog').open){$('#assigneePeople').innerHTML=allPeople().map(m=>'<label class="checkbox-label"><input type="checkbox" value="'+esc(m.user_id)+'">'+esc(m.display_name)+(m.is_test?' (Test)':'')+'</label>').join('');}
 }
 function addReminder(value=15) {
   if($$('#reminders input').length>=10) return toast('Maximal zehn Erinnerungen pro Termin');
@@ -203,7 +202,7 @@ function openEventSummary(event) {
   const rows=[['Kalender',displayCalendarIds(event).map(id=>calendars.find(c=>c.id===id)?.display_name||'').join(', ')],
     ['Datum',dateAtNoon(event.event_date).toLocaleDateString('de-DE')+(eventEndDate(event)!==event.event_date?' bis '+dateAtNoon(eventEndDate(event)).toLocaleDateString('de-DE'):'')],
     ['Zeit',event.all_day?'Ganztägig':(event.start_time?.slice(0,5)||'')+' – '+(event.end_time?.slice(0,5)||'')],
-    ['Ort',event.location],['Bringt',people('to')],['Holt',people('from')],['Zuständig',event.assignee_all?'Alle in der Verantwortungsgruppe':people('assignee')],
+    ['Ort',event.location],['Zuständig',event.assignee_all?'Alle in der Verantwortungsgruppe':people('assignee')],
     ['Status',event.is_cancelled?'Abgesagt':event.blocks_time===false?'Hinweis · belegt keine Zeit':''],
     ['Erinnerung',(event.reminders||[]).map(m=>m+' Min. vorher').join(', ')],['Serie',event.series_id?'Wiederkehrender Termin':'']];
   $('#eventSummaryContent').innerHTML='<dl class="event-facts">'+rows.filter(([,v])=>v).map(([k,v])=>'<div><dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd></div>').join('')+'</dl>'+(event.notes?event.notes.length>180?'<details class="summary-notes"><summary>Notiz anzeigen</summary><p>'+esc(event.notes)+'</p></details>':'<p class="summary-notes">'+esc(event.notes)+'</p>':'');
@@ -223,7 +222,7 @@ function openEvent(event=null) {
   $('#deleteEvent').classList.toggle('hidden',!deletable);
   const values={eventDate:event?.event_date||localDate(),eventType:event?.event_type||'appointment',eventTitle:event?.title||'',
     startTime:event?.start_time?.slice(0,5)||'',endTime:event?.end_time?.slice(0,5)||'',allDay:String(event?.all_day||false),
-    eventEndDate:event?eventEndDate(event):localDate(),location:event?.location||'',notes:event?.notes||'',assignee:event?.assignee_id||'',transportTo:assignmentIds(event||{},'to')[0]||'',transportFrom:assignmentIds(event||{},'from')[0]||''};
+    eventEndDate:event?eventEndDate(event):localDate(),location:event?.location||'',notes:event?.notes||'',assignee:event?.assignee_id||''};
   Object.entries(values).forEach(([id,value])=>$('#'+id).value=value);
   $('#blocksTime').checked=event?.blocks_time!==false;
   fillEventCalendars(event);
@@ -248,7 +247,7 @@ function payload() {
   return {family_id:member.family_id,event_type:$('#eventType').value,title:$('#eventTitle').value.trim(),event_date:$('#eventDate').value,
     calendar_ids:$$('#eventCalendars input:checked').map(x=>x.value),blocks_time:$('#blocksTime').checked,
     end_date:$('#eventEndDate').value,assignee_all:$('#assigneeAll').checked,expected_updated_at:editingStamp,
-    assignments:[...$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value})),...['transportTo','transportFrom'].filter(id=>$('#'+id).value).map(id=>({role:id==='transportTo'?'to':'from',person_id:$('#'+id).value}))],
+    assignments:$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value})),
     start_time:allDay?null:$('#startTime').value||null,end_time:allDay?null:$('#endTime').value||null,all_day:allDay,
     location:$('#location').value.trim(),notes:$('#notes').value.trim(),
     reminders:[...new Set($$('#reminders input').map(x=>Number(x.value)))]};
@@ -536,10 +535,10 @@ function updateCalendarPicker() {
  $('#showMyCalendar').disabled=!calendars.some(c=>c.person_id===myPersonId());
 }
 function updateAutomaticCalendars() {
- const bedtime=$('#eventType').value==='bedtime';$('#bedtimeAssignmentInfo').classList.toggle('hidden',!bedtime);$('#calendarDisplayHint').textContent=bedtime?'Bettgehzeit erscheint nur in Leos Kalender.':'Bringt, Holt und Zuständig erscheinen automatisch auch im jeweiligen Kalender.';
+ const bedtime=$('#eventType').value==='bedtime';$('#bedtimeAssignmentInfo').classList.toggle('hidden',!bedtime);$('#calendarDisplayHint').textContent=bedtime?'Bettgehzeit erscheint nur in Leos Kalender.':'Zuständige sehen den Termin automatisch auch in ihrem Kalender.';
  const explicit=$$('#eventCalendars input:checked').map(x=>x.value);
  const event={calendar_links:explicit.map(calendar_id=>({calendar_id})),assignee_all:$('#assigneeAll').checked,
-  assignments:[...$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value})),...['transportTo','transportFrom'].filter(id=>$('#'+id).value).map(id=>({role:id==='transportTo'?'to':'from',person_id:$('#'+id).value}))]};
+  assignments:$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value}))};
  const extra=displayCalendarIds(event).filter(id=>!explicit.includes(id)).map(id=>calendars.find(c=>c.id===id)?.display_name).filter(Boolean);
  $('#automaticCalendars').textContent=!bedtime&&extra.length?'Automatisch auch in: '+extra.join(', '):'';
 }
@@ -587,7 +586,7 @@ function editCalendar(id=null) {
 }
 function selfActions(event) {
  if(event.is_cancelled||!myPersonId())return '';
- return '<div class="self-actions">'+[['to','Bringen'],['from','Abholen'],['assignee','Zuständigkeit']].filter(([r])=>r!=='assignee'||!event.assignee_all).map(([r,label])=>{const take=!assignmentIds(event,r).includes(myPersonId());return '<button type="button" class="secondary compact" data-self-event="'+esc(event.id)+'" data-self-role="'+r+'" data-self-take="'+take+'">'+label+(take?' übernehmen':' abgeben')+'</button>';}).join('')+'</div>';
+ return '<div class="self-actions">'+[['assignee','Zuständigkeit']].filter(([r])=>r!=='assignee'||!event.assignee_all).map(([r,label])=>{const take=!assignmentIds(event,r).includes(myPersonId());return '<button type="button" class="secondary compact" data-self-event="'+esc(event.id)+'" data-self-role="'+r+'" data-self-take="'+take+'">'+label+(take?' übernehmen':' abgeben')+'</button>';}).join('')+'</div>';
 }
 
 start();

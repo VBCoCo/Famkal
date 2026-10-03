@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.7.5';
+export const APP_VERSION = '1.7.6';
 export function localDate(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
@@ -18,26 +18,27 @@ export function escapeHtml(value) { return String(value??'').replace(/[&<>"']/g,
 export function safeColor(value) { return /^#[0-9a-f]{6}$/i.test(value??'') ? value : '#888888'; }
 export function eventTime(event) { return event.all_day ? 'Ganztägig' : event.start_time?.slice(0,5)||'Ohne Uhrzeit'; }
 export function assignmentIds(event,role) {
+  if(role!=='assignee')return [];
   if(Array.isArray(event.assignments))return [...new Set(event.assignments.filter(a=>a.role===role).map(a=>a.person_id||a.member_user_id||a.test_member_id).filter(Boolean))];
-  return [event[{assignee:'assignee_id',to:'transport_to_id',from:'transport_from_id'}[role]]].filter(Boolean);
+  return [event.assignee_id].filter(Boolean);
 }
 // Display membership is derived; explicit calendar links remain the write boundary.
 export function eventCalendarIds(event,calendars,people=[],{includeBedtimeResponsibilities=false}={}) {
  if(event.event_type==='bedtime'&&!includeBedtimeResponsibilities)return calendars.filter(c=>c.allow_family_create).map(c=>c.id);
  const ids=new Set((event.calendar_links||[]).map(l=>l.calendar_id));
- const responsible=new Set(['to','from','assignee'].flatMap(role=>assignmentIds(event,role)));
+ const responsible=new Set(['assignee'].flatMap(role=>assignmentIds(event,role)));
  if(event.assignee_all){const all=event.all_task_person_ids||people.filter(p=>p.is_active!==false&&p.include_in_all_tasks!==false).map(p=>p.user_id||p.id);all.forEach(id=>responsible.add(id));}
  calendars.filter(c=>responsible.has(c.person_id)).forEach(c=>ids.add(c.id));
  return [...ids];
 }
-export function assignedTo(event, userId) { return !!userId && ((event.calendar_people||[]).includes(userId) || (event.assignee_all && (!event.all_task_person_ids||event.all_task_person_ids.includes(userId))) || ['assignee','to','from'].some(role=>assignmentIds(event,role).includes(userId))); }
+export function assignedTo(event, userId) { return !!userId && ((event.calendar_people||[]).includes(userId) || (event.assignee_all && (!event.all_task_person_ids||event.all_task_person_ids.includes(userId))) || ['assignee'].some(role=>assignmentIds(event,role).includes(userId))); }
 export function eventRoles(event, userId) {
-  return [['to','Bringen'],['from','Abholen'],['assignee','Zuständig']]
+  return [['assignee','Zuständig']]
     .filter(([role])=>(role==='assignee'&&event.assignee_all&&(!userId||!event.all_task_person_ids||event.all_task_person_ids.includes(userId)))||assignmentIds(event,role).some(id=>!userId||id===userId)).map(([,label])=>label);
 }
 export function openAssignment(event) {
   if(event.requires_assignment===false&&['appointment','school','vacation'].includes(event.event_type))return '';
-  if(event.event_type==='transport' && !assignmentIds(event,'to').length && !assignmentIds(event,'from').length) return 'Fahrt ungeklärt';
+  if(event.event_type==='transport' && !event.assignee_all && !assignmentIds(event,'assignee').length) return 'Fahrt ungeklärt';
   if(['care','bedtime'].includes(event.event_type) && !event.assignee_all && !assignmentIds(event,'assignee').length) return 'Zuständigkeit offen';
   return eventRoles(event).length ? '' : 'Zuständigkeit offen';
 }
@@ -59,7 +60,7 @@ export function cardTime(event,day=event.event_date) {
   return eventTime(event)+(eventEndDate(event)>event.event_date?' → '+dateAtNoon(eventEndDate(event)).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+(event.end_time?' '+event.end_time.slice(0,5):''):'');
 }
 export function assignmentColors(event,people,userId) {
-  const ids=event.assignee_all?people.filter(p=>p.include_in_all_tasks!==false).map(p=>p.user_id):[...assignmentIds(event,'assignee'),...assignmentIds(event,'to'),...assignmentIds(event,'from')];
+  const ids=event.assignee_all?people.filter(p=>p.include_in_all_tasks!==false).map(p=>p.user_id):assignmentIds(event,'assignee');
   const colors=[...new Set(ids.map(id=>safeColor(people.find(p=>p.user_id===id)?.color)))];
   if(!colors.length)return '#888888';
   return colors.length===1?colors[0]:'linear-gradient(180deg,'+colors.join(',')+')';

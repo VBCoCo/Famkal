@@ -218,7 +218,7 @@ test('all appointment assignments appear once as tasks, grouped by day',()=>{
   f.w.testApp.setEvents([makeEvent('orthodontist',{assignee_id:'u1',transport_to_id:'u1',transport_from_id:'u1'}),makeEvent('school',{event_type:'school',assignee_id:'u1'}),makeEvent('plain')]);
   assert.equal(f.w.document.querySelectorAll('#tasksList .event-card').length,2);
   assert.equal(f.w.document.querySelectorAll('#tasksList>h3').length,1);
-  assert.match(f.w.document.querySelector('#tasksList').textContent,/Bringen · Abholen · Zuständig/);
+  assert.match(f.w.document.querySelector('#tasksList').textContent,/Zuständig/);
  }finally{f.close();}
 });
 test('unresolved task filter covers missing care assignee and keeps calendar selection',()=>{
@@ -234,7 +234,7 @@ test('unresolved task filter covers missing care assignee and keeps calendar sel
 test('compact cards expand separately from editing, own color and no redundant own name',()=>{
  const f=fixture();try{
   f.w.testApp.setPeople([{user_id:'u1',display_name:'Robert',color:'#0066ff'},{user_id:'u2',display_name:'Anna',color:'#ff0000'}]);
-  f.w.testApp.setEvents([makeEvent('appointment',{assignee_id:'u2',transport_to_id:'u1',location:'Praxis',notes:'Notiz'})]);
+  f.w.testApp.setEvents([makeEvent('appointment',{assignments:[{role:'assignee',person_id:'u1'},{role:'assignee',person_id:'u2'}],location:'Praxis',notes:'Notiz'})]);
   f.w.document.querySelector('[data-filter=mine]').click();
   const card=f.w.document.querySelector('#upcomingList .event-card');
   assert.match(card.style.getPropertyValue('--assignment'),/#0066ff/);assert.match(card.style.getPropertyValue('--assignment'),/#ff0000/);assert.ok(!card.querySelector('.chips').textContent.includes('Robert'));
@@ -319,28 +319,28 @@ test('shared compact header contains calendar selection and version is confined 
  const f=fixture();try{
   const d=f.w.document;assert.ok(d.querySelector('header #calendarPicker'));assert.equal(d.querySelector('.calendar-picker-bar'),null);assert.doesNotMatch(d.querySelector('.app-top').textContent,/1\.7\./);assert.doesNotMatch(d.querySelector('#auth').textContent,/1\.7\./);
   for(const view of ['today','family','week','tasks']){f.w.testApp.navigate(view);assert.equal(d.querySelector('#calendarFilters').classList.contains('hidden'),false);}
-  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.5/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.5/);
+  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.6/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.6/);
   d.querySelector('#settingsDialog').close();d.querySelector('#availabilityInfo').click();assert.match(d.querySelector('#settingsContent').textContent,/nicht automatisch bestätigt verfügbar/);
  }finally{f.close();}
 });
 
 test('compact summary escapes notes and hides editing for another personal calendar',()=>{
  const f=fixture();try{
-  f.w.testApp.setRole('member');const event=makeEvent('private',{calendar_links:[{calendar_id:'anna'}],notes:'<img src=x onerror=alert(1)> '+ 'Long note '.repeat(30),location:'Somewhere',assignments:[{role:'to',person_id:'u1'}]});
+  f.w.testApp.setRole('member');const event=makeEvent('private',{calendar_links:[{calendar_id:'anna'}],notes:'<img src=x onerror=alert(1)> '+ 'Long note '.repeat(30),location:'Somewhere',assignments:[{role:'assignee',person_id:'u1'}]});
   f.w.testApp.openEventSummary(event);const d=f.w.document;
-  assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),true);assert.ok(d.querySelector('#eventSummaryContent details'));assert.equal(d.querySelector('#eventSummaryContent details').open,false);assert.equal(d.querySelector('#eventSummaryContent img'),null);assert.match(d.querySelector('#eventSummaryContent').textContent,/Bringt.*Robert/);assert.equal(f.calls.length,0);
+  assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),true);assert.ok(d.querySelector('#eventSummaryContent details'));assert.equal(d.querySelector('#eventSummaryContent details').open,false);assert.equal(d.querySelector('#eventSummaryContent img'),null);assert.match(d.querySelector('#eventSummaryContent').textContent,/Zuständig.*Robert/);assert.equal(f.calls.length,0);
   f.w.testApp.clearSession();assert.equal(d.querySelector('#eventSummaryDialog').open,false);assert.equal(d.querySelector('#eventSummaryContent').textContent,'');
  }finally{f.close();}
 });
 
 test('responsibility shows an existing Leo event in Robert calendar without adding write links',()=>{
  const f=fixture();try{
-  const day=utils.localDate(),event=makeEvent('bring',{event_date:day,created_by:'another',event_type:'transport',assignments:[{role:'to',person_id:'u1'}]});
+  const day=utils.localDate(),event=makeEvent('bring',{event_date:day,created_by:'another',event_type:'transport',assignments:[{role:'assignee',person_id:'u1'}]});
   f.w.testApp.setEvents([event]);f.w.testApp.setCalendarSelection(['robert']);f.w.testApp.renderFamily();const d=f.w.document;
   assert.equal(d.querySelectorAll('[data-family-event="bring"]').length,1);assert.match(d.querySelector('#todayList').textContent,/bring/);
   f.w.testApp.setRole('member');d.querySelector('[data-family-event="bring"]').click();assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),true);d.querySelector('#eventSummaryDialog').close();
   f.w.testApp.setRole('owner');f.w.testApp.openEvent(event);assert.match(d.querySelector('#automaticCalendars').textContent,/Robert/);assert.equal(d.querySelector('#eventCalendars input[value="robert"]').checked,false);assert.deepEqual(Array.from(f.w.testApp.payload().calendar_ids),['leo']);
-  d.querySelector('#transportTo').value='';d.querySelector('#transportTo').dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(d.querySelector('#automaticCalendars').textContent,'');
+  d.querySelector('#assigneePeople input[value="u1"]').checked=false;d.querySelector('#assigneePeople input[value="u1"]').dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(d.querySelector('#automaticCalendars').textContent,'');
  }finally{f.close();}
 });
 
@@ -362,3 +362,5 @@ test('bedtime stays in Leo calendar while responsible users retain tasks and the
   d.querySelector('#eventType').value='appointment';d.querySelector('#eventType').dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(d.querySelector('#bedtimeAssignmentInfo').classList.contains('hidden'),true);
  }finally{f.close();}
 });
+
+ test('obsolete transport controls and roles are absent, standalone rides retain responsibility',()=>{const f=fixture();try{const d=f.w.document;f.w.testApp.openEvent(makeEvent('ride',{event_type:'transport',assignments:[{role:'assignee',person_id:'u1'}]}));assert.equal(d.querySelector('#transportTo'),null);assert.equal(d.querySelector('#transportFrom'),null);assert.equal(d.querySelector('#eventType').value,'transport');assert.deepEqual(Array.from(f.w.testApp.payload().assignments,x=>x.role),['assignee']);const card=f.w.testApp.card(makeEvent('legacy',{assignments:[{role:'to',person_id:'u1'},{role:'from',person_id:'u1'}]}));assert.doesNotMatch(card,/Bringt|Holt|Bringen übernehmen|Abholen übernehmen/);}finally{f.close();}});

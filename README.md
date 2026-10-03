@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.5
+# Leonhards Familienkalender — Famkal 1.7.6
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -18,8 +18,7 @@ geprüfte RPCs. Nur zugelassene Push-Provider erhalten HTTPS-Anfragen, ohne
 Weiterleitungen. Geräteendpunkte und Schlüssel werden weder geloggt noch
 anderen Familienmitgliedern angezeigt. Bis zu zehn aktive Geräte je Person.
 
-Empfänger sind die echten Mitglieder mit Bringt/Holt/Zuständig, bei Alle alle
-echten Familienmitglieder. Mehrere Rollen ergeben je Gerät und Vorlauf nur eine
+Empfänger sind verknüpfte Zuständige und, außer bei Bettgehzeit, Inhaber des jeweiligen Kalenders. Bei Alle gilt die explizite Verantwortungsgruppe. Mehrere Zuordnungen ergeben je Gerät und Vorlauf nur eine
 Nachricht. Testmitglieder erhalten keine Nachrichten. Alle Serienvorkommen sind
 normale Termine; Absagen, veränderte Uhrzeiten/Vorläufe und entfernte Mitglieder
 werden vor dem Versand erneut geprüft. Deutsche Zeit inklusive Sommerzeit;
@@ -408,3 +407,7 @@ Termine erscheinen automatisch in den Kalendern der Personen für Bringt, Holt o
 ## Alle-Auswahl und Bettgehzeit (1.7.5)
 
 Einzelpersonen bleiben bei Alle antippbar; Auswählen einer Person deaktiviert Alle automatisch, Alle deaktiviert Einzelpersonen. Bettgehzeiten erscheinen ausschließlich in Leos Kalender, auch bei vorhandenen zusätzlichen Kalenderverknüpfungen. Aufgaben und Erinnerungen der Zuständigen bleiben erhalten. Hinweis im Zuständigkeitsfeld. Erinnerungs-Empfänger folgen bei Bettgehzeit ausschließlich Aufgaben/Verantwortungsgruppe; reine Kalenderzugehörigkeit erzeugt keinen zusätzlichen Empfänger.
+
+### Änderung in 1.7.6
+
+Die Zusatzfelder Bringt/Holt und ihre Aufgaben-, Farb-, Kalender- und Erinnerungslogik entfallen vollständig. Alte Zuordnungen und Datenbankspalten werden ausdrücklich gelöscht; eigenständige Fahrten bleiben Termine mit normaler Zuständigkeit.

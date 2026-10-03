@@ -7,7 +7,7 @@ test('German midnight stays on the local calendar day',()=>{
   assert.equal(localDate(new Date('2026-01-01T00:15:00+01:00')),'2026-01-01');
 });
 test('all and normalized multiple assignment reach every selected user',()=>{
- const multi={assignments:[{role:'assignee',member_user_id:'u1'},{role:'assignee',member_user_id:'u2'},{role:'to',test_member_id:'pink'}]};
+ const multi={assignments:[{role:'assignee',member_user_id:'u1'},{role:'assignee',member_user_id:'u2'},{role:'assignee',test_member_id:'pink'}]};
  assert.equal(assignedTo(multi,'u2'),true);assert.equal(assignedTo(multi,'u3'),false);assert.equal(openAssignment(multi),'');
  assert.equal(assignedTo({assignee_all:true},'u3'),true);assert.equal(isTask({assignee_all:true}),true);
  assert.equal(assignmentColors(multi,[{user_id:'u1',color:'#0066ff'},{user_id:'u2',color:'#ff0000'},{user_id:'pink',color:'#ff69b4'}]),'linear-gradient(180deg,#0066ff,#ff0000,#ff69b4)');
@@ -23,17 +23,17 @@ test('overnight and inclusive all-day spans cross days and daylight-saving chang
  assert.equal(eventsOverlap({event_date:'2026-10-01',all_day:true,start_time:'20:00:00'},{event_date:'2026-10-01',start_time:'07:00:00',end_time:'08:00:00'}),true);
 });
 test('all assignment roles count across event types and do not match missing user',()=>{
- for(const key of ['assignee_id','transport_to_id','transport_from_id'])for(const event_type of ['appointment','school','transport','care','bedtime']){
+ for(const key of ['assignee_id'])for(const event_type of ['appointment','school','transport','care','bedtime']){
   const event={event_type,[key]:'u1'};assert.equal(assignedTo(event,'u1'),true);assert.equal(isTask(event),true);
   assert.equal(filterEvents([event],'mine','u2').length,0);
  }
  assert.equal(assignedTo({},undefined),false);
  assert.equal(isTask({event_type:'appointment'}),false);
- assert.deepEqual(eventRoles({assignee_id:'u1',transport_to_id:'u1',transport_from_id:'u2'},'u1'),['Bringen','Zuständig']);
+ assert.deepEqual(eventRoles({assignee_id:'u1',transport_to_id:'u1',transport_from_id:'u2'},'u1'),['Zuständig']);
 });
 test('unresolved roles follow event type without inventing unrequested return journeys',()=>{
- assert.equal(openAssignment({event_type:'transport',transport_to_id:'u1'}),'');
- assert.equal(openAssignment({event_type:'transport',assignee_id:'u1'}),'Fahrt ungeklärt');
+ assert.equal(openAssignment({event_type:'transport',assignee_id:'u1'}),'');
+ assert.equal(openAssignment({event_type:'transport'}),'Fahrt ungeklärt');
  assert.equal(openAssignment({event_type:'care',transport_to_id:'u1'}),'Zuständigkeit offen');
  assert.equal(openAssignment({event_type:'bedtime',assignee_id:'u1'}),'');
  assert.equal(openAssignment({event_type:'appointment'}),'Zuständigkeit offen');
@@ -89,13 +89,15 @@ test('adjacent short events use one lane while real conflicts reuse lanes correc
 test('calendar display derives all responsibility roles and the explicit All group without duplicates',async()=>{
  const {eventCalendarIds}=await import('../calendar-utils.js');const calendars=[{id:'leo',person_id:'leo'},{id:'robert',person_id:'r'},{id:'anna',person_id:'a'}],people=[{id:'r',include_in_all_tasks:true,is_active:true},{id:'a',include_in_all_tasks:false,is_active:true},{id:'test',include_in_all_tasks:true,is_active:true}];
  const base={calendar_links:[{calendar_id:'leo'}]};
- for(const role of ['to','from','assignee'])assert.deepEqual(eventCalendarIds({...base,assignments:[{role,person_id:'a'}]},calendars,people),['leo','anna']);
+ for(const role of ['assignee'])assert.deepEqual(eventCalendarIds({...base,assignments:[{role,person_id:'a'}]},calendars,people),['leo','anna']);
  assert.deepEqual(eventCalendarIds({...base,assignee_all:true},calendars,people),['leo','robert']);
  assert.deepEqual(eventCalendarIds({...base,assignments:[{role:'to',person_id:'r'},{role:'from',person_id:'r'},{role:'assignee',person_id:'r'}]},calendars,people),['leo','robert']);
- assert.deepEqual(eventCalendarIds({...base,transport_to_id:'r'},calendars,people),['leo','robert']);assert.deepEqual(base.calendar_links,[{calendar_id:'leo'}]);
+ assert.deepEqual(eventCalendarIds({...base,transport_to_id:'r'},calendars,people),['leo']);assert.deepEqual(base.calendar_links,[{calendar_id:'leo'}]);
 });
 
 test('bedtime display ignores extra calendar links but retains responsibility for tasks',async()=>{
  const {eventCalendarIds,assignedTo}=await import('../calendar-utils.js');const calendars=[{id:'leo',person_id:'child',allow_family_create:true},{id:'robert',person_id:'r'},{id:'anna',person_id:'a'}];
  const event={event_type:'bedtime',calendar_links:[{calendar_id:'robert'}],assignments:[{role:'assignee',person_id:'a'}]};assert.deepEqual(eventCalendarIds(event,calendars),['leo']);assert.deepEqual(eventCalendarIds(event,calendars,[],{includeBedtimeResponsibilities:true}),['robert','anna']);assert.equal(assignedTo(event,'a'),true);assert.deepEqual(event.calendar_links,[{calendar_id:'robert'}]);
 });
+
+ test('retired transport assignments do not affect mine, colors or calendar display',async()=>{const {eventCalendarIds}=await import('../calendar-utils.js');const e={event_type:'transport',assignments:[{role:'to',person_id:'r'},{role:'from',person_id:'r'}],calendar_links:[{calendar_id:'leo'}]};assert.equal(assignedTo(e,'r'),false);assert.deepEqual(eventRoles(e),[]);assert.equal(openAssignment(e),'Fahrt ungeklärt');assert.equal(assignmentColors(e,[{user_id:'r',color:'#0066ff'}]),'#888888');assert.deepEqual(eventCalendarIds(e,[{id:'r',person_id:'r'}]),['leo']);});

@@ -36,10 +36,13 @@ begin
  eid:=public.save_calendar_event_v170(data||jsonb_build_object('calendar_ids',jsonb_build_array(leo_c)));n:=n+1;
  reset role;perform set_config('request.jwt.claim.sub',member_id::text,true);set local role authenticated;
  if private.calendar_can_edit(eid) then raise exception 'Other child event editable';end if;n:=n+1;
- perform public.calendar_self_assign(eid,'to',true);
- if not exists(select 1 from public.event_assignments where event_id=eid and person_id=member_p and role='to') then raise exception 'Self task failed';end if;n:=n+1;
- perform public.calendar_self_assign(eid,'to',false);
- if exists(select 1 from public.event_assignments where event_id=eid and person_id=member_p and role='to') then raise exception 'Task release failed';end if;n:=n+1;
+ perform public.calendar_self_assign(eid,'assignee',true);
+ if not exists(select 1 from public.event_assignments where event_id=eid and person_id=member_p and role='assignee') then raise exception 'Self task failed';end if;n:=n+1;
+ perform public.calendar_self_assign(eid,'assignee',false);
+ if exists(select 1 from public.event_assignments where event_id=eid and person_id=member_p and role='assignee') then raise exception 'Task release failed';end if;n:=n+1;
+ bad:=false;begin perform public.calendar_self_assign(eid,'to',true);exception when others then bad:=true;end;if not bad then raise exception 'Retired to accepted';end if;n:=n+1;
+ bad:=false;begin perform public.calendar_self_assign(eid,'from',true);exception when others then bad:=true;end;if not bad then raise exception 'Retired from accepted';end if;n:=n+1;
+ bad:=false;begin perform public.save_calendar_event_v170(data||jsonb_build_object('calendar_ids',jsonb_build_array(member_c),'assignments',jsonb_build_array(jsonb_build_object('role','to','person_id',member_p))));exception when others then bad:=true;end;if not bad then raise exception 'Retired role save accepted';end if;n:=n+1;
  reset role;perform set_config('request.jwt.claim.sub',outsider_id::text,true);set local role authenticated;
  if exists(select 1 from public.events where family_id=f) or exists(select 1 from public.calendars where family_id=f) then raise exception 'Cross-family RLS leak';end if;n:=n+1;
  reset role;perform set_config('request.jwt.claim.sub',owner_id::text,true);set local role authenticated;
