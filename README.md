@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.3
+# Leonhards Familienkalender — Famkal 1.7.4
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -400,3 +400,7 @@ Querformat erkennt die Oberfläche automatisch: Kopfzeile und Filter in einer Ze
 ## Speichern und Zoom (1.7.3)
 
 Gemeinsame Kalenderprüfung behandelt NEW.id und OLD.event_id in getrennten Triggerzweigen. Termin-/Serienänderungen schließen wieder erfolgreich ab; Pflicht-Kalenderzuordnung bleibt geschützt. Regression prüft echte COMMITs für Einzeltermin, folgende Termine und gesamte Serie sowie Ablehnung fehlender Kalender. Produktive isolierte Prüfung erzwingt verzögerte Constraints vor ROLLBACK. Touch-action manipulation verhindert Doppeltipp-Zoom und erhält Zwei-Finger-Zoom; Eingabefelder mindestens 16px gegen iPhone-Fokus-Zoom.
+
+## Zuständigkeitskalender und kompakte Zeitfelder (1.7.4)
+
+Termine erscheinen automatisch in den Kalendern der Personen für Bringt, Holt oder Zuständig; Alle verwendet die explizite Verantwortungsgruppe. Anzeige aus bestehenden Aufgaben abgeleitet, keine Kopien oder neuen Kalenderverknüpfungen. Kalenderauswahl wirkt auch auf automatische Einträge; Bearbeitungsrechte unverändert. Beginn und Ende jeweils mit Datum und Uhrzeit in einer Zeile, auch mobil; ganztägig ohne Uhrzeitfelder.

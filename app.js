@@ -2,7 +2,7 @@ import { mountPushSettings, disablePushDevice } from './push-settings.js';
 import { createClient } from './vendor/supabase.js';
 import { mountProjectList } from './project-list.js';
 import { parseAccessLink, redeemAccessLink, requestAccessLink, requestRecoveryEmail } from './access-links.js';
-import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent, assignedTo, eventRoles, openAssignment, isTask, filterEvents, assignmentIds, eventEndDate, eventOnDay, eventsOverlap, cardTime, assignmentColors, layoutDayEvents } from './calendar-utils.js';
+import { APP_VERSION, localDate, addDays, dateAtNoon, weekBounds, queryBounds, escapeHtml as esc, safeColor, eventTime, nextEvent, assignedTo, eventRoles, openAssignment, isTask, filterEvents, assignmentIds, eventEndDate, eventOnDay, eventsOverlap, cardTime, assignmentColors, layoutDayEvents, eventCalendarIds } from './calendar-utils.js';
 
 const cfg = window.APP_CONFIG || {};
 const $ = s => document.querySelector(s);
@@ -119,7 +119,8 @@ async function refreshAll() {
 const allPeople=()=>profiles.length?profiles.filter(p=>p.is_active).map(p=>({...p,user_id:p.id})):[...members,...testMembers];
 const myPersonId=()=>profiles.find(p=>p.linked_user_id===user?.id)?.id||user?.id;
 const normalizeEvent=e=>({...e,calendar_people:(e.calendar_links||[]).map(link=>calendars.find(c=>c.id===link.calendar_id)?.person_id).filter(Boolean),requires_assignment:(e.calendar_links||[]).some(link=>calendars.find(c=>c.id===link.calendar_id)?.allow_family_create),all_task_person_ids:profiles.filter(p=>p.is_active&&p.include_in_all_tasks).map(p=>p.id)});
-const selectedEvents=()=>calendars.length?events.filter(e=>(e.calendar_links||[]).some(link=>selectedCalendars?.includes(link.calendar_id))):events;
+const displayCalendarIds=e=>eventCalendarIds(e,calendars,allPeople());
+const selectedEvents=()=>calendars.length?events.filter(e=>displayCalendarIds(e).some(id=>selectedCalendars?.includes(id))):events;
 const person=id=>allPeople().find(m=>m.user_id===id);
 const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️',vacation:'🏖️'}[type]||'📅');
 function card(event, {mine=false, task=false, day=event.event_date}={}) {
@@ -131,7 +132,7 @@ function card(event, {mine=false, task=false, day=event.event_date}={}) {
     typeIcon(event.event_type)+' '+esc(cardTime(event,day))+'</small><strong>'+esc(event.title)+'</strong>'+
     ((task||mine)&&roles.length?'<span class="event-role">'+roles.map(esc).join(' · ')+'</span>':'')+
     (event.is_cancelled?'<span class="assignment-open">Abgesagt'+(event.vacation_cancel_id?' · Urlaub':'')+'</span>':open?'<span class="assignment-open">'+esc(open)+'</span>':'')+'</span><span class="expand-icon" aria-hidden="true">⌄</span><span class="visually-hidden">Details ein- oder ausklappen</span></summary><div class="event-details">'+
-    '<p class="calendar-membership">Kalender: '+(event.calendar_links||[]).map(l=>esc(calendars.find(c=>c.id===l.calendar_id)?.display_name||'')).join(', ')+'</p><p>'+esc(event.event_date)+(eventEndDate(event)!==event.event_date?' bis '+esc(eventEndDate(event)):'')+'</p>'+
+    '<p class="calendar-membership">Kalender: '+displayCalendarIds(event).map(id=>esc(calendars.find(c=>c.id===id)?.display_name||'')).join(', ')+'</p><p>'+esc(event.event_date)+(eventEndDate(event)!==event.event_date?' bis '+esc(eventEndDate(event)):'')+'</p>'+
     (event.location?'<p>Ort: '+esc(event.location)+'</p>':'')+
     (event.end_time&&!event.all_day?'<p>Ende: '+esc(event.end_time.slice(0,5))+'</p>':'')+
     '<div class="chips">'+chips.map(x=>'<span class="chip">'+x+'</span>').join('')+
@@ -191,14 +192,15 @@ function addReminder(value=15) {
 }
 function toggleAllDay() {
   const allDay=$('#allDay').value==='true';
-  ['startTime','endTime'].forEach(id=>{$('#'+id).disabled=allDay;$('#'+id).required=!allDay;});
+  ['startTime','endTime'].forEach(id=>{$('#'+id).disabled=allDay;$('#'+id).required=!allDay;$('#'+id).closest('.event-clock').classList.toggle('hidden',allDay);});
+  $$('.event-time-row').forEach(row=>row.classList.toggle('all-day',allDay));
 }
 function canEdit(event) { if(member?.role==='owner')return true;const links=event.calendar_links||[];return links.length>0&&links.every(l=>{const c=calendars.find(c=>c.id===l.calendar_id);return c&&(c.person_id===myPersonId()||(c.allow_family_create&&event.created_by===user?.id));}); }
 function openEventSummary(event) {
   if(!member||!event)return;
   $('#eventSummaryTitle').textContent=typeIcon(event.event_type)+' '+event.title;
   const people=(role)=>assignmentIds(event,role).map(id=>person(id)?.display_name||'Unbekannt').join(', ');
-  const rows=[['Kalender',(event.calendar_links||[]).map(l=>calendars.find(c=>c.id===l.calendar_id)?.display_name||'').join(', ')],
+  const rows=[['Kalender',displayCalendarIds(event).map(id=>calendars.find(c=>c.id===id)?.display_name||'').join(', ')],
     ['Datum',dateAtNoon(event.event_date).toLocaleDateString('de-DE')+(eventEndDate(event)!==event.event_date?' bis '+dateAtNoon(eventEndDate(event)).toLocaleDateString('de-DE'):'')],
     ['Zeit',event.all_day?'Ganztägig':(event.start_time?.slice(0,5)||'')+' – '+(event.end_time?.slice(0,5)||'')],
     ['Ort',event.location],['Bringt',people('to')],['Holt',people('from')],['Zuständig',event.assignee_all?'Alle in der Verantwortungsgruppe':people('assignee')],
@@ -239,7 +241,7 @@ function openEvent(event=null) {
   $('#saveEvent').disabled=!allowed||!!event?.is_cancelled;$('#saveEvent').textContent='Speichern';
   if(event?.event_type==='vacation')$('#seriesInfo').textContent='Vorhandene Urlaubsabsagen bleiben bei einer Änderung des Zeitraums erhalten. Über die Terminkarte kannst du sie ausdrücklich rückgängig machen.';
   if(!allowed) $('#seriesInfo').textContent='Du kannst diesen Termin ansehen, aber nicht bearbeiten.';
-  toggleAllDay(); $('#eventDialog').showModal();
+  toggleAllDay();updateAutomaticCalendars(); $('#eventDialog').showModal();
 }
 function payload() {
   const allDay=$('#allDay').value==='true';
@@ -445,6 +447,7 @@ function bindUI() {
   const changeWeek=async delta=>{weekOffset+=delta; $('#weekList').innerHTML='<div class="empty">Termine werden geladen …</div>'; try{await refreshAll();}catch(error){$('#weekList').innerHTML='<div class="empty">Termine konnten nicht geladen werden. Bitte aktualisieren.</div>';toast(errorText(error));}};
   $('#prevWeek').onclick=()=>changeWeek(-1); $('#nextWeek').onclick=()=>changeWeek(1);
   $('#addReminder').onclick=()=>addReminder(); $('#allDay').onchange=toggleAllDay;
+  $('#eventForm').addEventListener('change',updateAutomaticCalendars);
   $('#eventForm').onsubmit=saveEvent; $('#deleteEvent').onclick=deleteEvent;
   $$('[data-close]').forEach(b=>b.onclick=()=>$('#'+b.dataset.close).close());
   $('#scopeDialog').addEventListener('close',()=>{pendingScope=null;});
@@ -531,6 +534,13 @@ function updateCalendarPicker() {
  $$('#calendarChoices input').forEach(x=>x.onchange=()=>setCalendarSelection($$('#calendarChoices input:checked').map(x=>x.value)));
  $('#showMyCalendar').disabled=!calendars.some(c=>c.person_id===myPersonId());
 }
+function updateAutomaticCalendars() {
+ const explicit=$$('#eventCalendars input:checked').map(x=>x.value);
+ const event={calendar_links:explicit.map(calendar_id=>({calendar_id})),assignee_all:$('#assigneeAll').checked,
+  assignments:[...$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value})),...['transportTo','transportFrom'].filter(id=>$('#'+id).value).map(id=>({role:id==='transportTo'?'to':'from',person_id:$('#'+id).value}))]};
+ const extra=displayCalendarIds(event).filter(id=>!explicit.includes(id)).map(id=>calendars.find(c=>c.id===id)?.display_name).filter(Boolean);
+ $('#automaticCalendars').textContent=extra.length?'Automatisch auch in: '+extra.join(', '):'';
+}
 function fillEventCalendars(event) {
  const own=calendars.find(c=>c.person_id===myPersonId()&&c.is_active),defaultCalendar=own||calendars.find(c=>c.allow_family_create&&c.is_active);
  const selected=event?(event.calendar_links||[]).map(l=>l.calendar_id):defaultCalendar?[defaultCalendar.id]:[];
@@ -547,11 +557,11 @@ function renderFamily() {
  if(!visible.length){root.innerHTML='<div class="empty">Bitte Kalender einblenden.</div>';return;}
  const filtered=filterEvents(events,calendarFilter,myPersonId());
  let html='<div class="family-scroll" tabindex="0" aria-label="Familienkalender, ausgewählte Kalender nebeneinander, vertikal verschiebbar"><div class="family-grid" style="--columns:'+visible.length+'"><div class="family-corner">Zeit</div>'+visible.map(c=>'<div class="family-column-heading"><strong>'+esc(c.display_name)+'</strong>'+(c.is_active?'':'<small>Archiviert</small>')+'</div>').join('');
- const hasAllDay=filtered.some(e=>e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>visible.some(c=>c.id===l.calendar_id)));
- if(hasAllDay)html+='<div class="family-allday-label" aria-label="Ganztägig">Tag</div>'+visible.map(c=>{const list=filtered.filter(e=>e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>l.calendar_id===c.id));return '<div class="family-allday">'+list.map(e=>'<button type="button" data-family-event="'+esc(e.id)+'" class="family-all-event" style="--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(e.title+' · Ganztägig')+'"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><strong>'+esc(e.title)+'</strong></button>').join('')+'</div>';}).join('');
+ const hasAllDay=filtered.some(e=>e.all_day&&eventOnDay(e,familyDay)&&displayCalendarIds(e).some(id=>visible.some(c=>c.id===id)));
+ if(hasAllDay)html+='<div class="family-allday-label" aria-label="Ganztägig">Tag</div>'+visible.map(c=>{const list=filtered.filter(e=>e.all_day&&eventOnDay(e,familyDay)&&displayCalendarIds(e).includes(c.id));return '<div class="family-allday">'+list.map(e=>'<button type="button" data-family-event="'+esc(e.id)+'" class="family-all-event" style="--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(e.title+' · Ganztägig')+'"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><strong>'+esc(e.title)+'</strong></button>').join('')+'</div>';}).join('');
  html+='<div class="family-hours">'+Array.from({length:24},(_,i)=>'<span style="top:'+i*48+'px">'+String(i).padStart(2,'0')+':00</span>').join('')+'</div>';
  html+=visible.map(c=>{
-  const rows=layoutDayEvents(filtered.filter(e=>!e.all_day&&eventOnDay(e,familyDay)&&(e.calendar_links||[]).some(l=>l.calendar_id===c.id)),familyDay);
+  const rows=layoutDayEvents(filtered.filter(e=>!e.all_day&&eventOnDay(e,familyDay)&&displayCalendarIds(e).includes(c.id)),familyDay);
   return '<div class="family-day-column">'+rows.map(({event:e,start,end,lane,lanes})=>'<button type="button" class="family-time-event'+(e.blocks_time===false?' time-hint':'')+(e.is_cancelled?' cancelled':'')+'" data-family-event="'+esc(e.id)+'" style="top:'+start*.8+'px;height:'+Math.max(.8,(end-start)*.8)+'px;left:calc('+lane*100/lanes+'% + 3px);width:calc('+100/lanes+'% - 6px);--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(c.display_name+' · '+e.title+' · '+cardTime(e,familyDay))+'"><span class="family-event-meta"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><small>'+esc(start===0&&e.event_date<familyDay?'00:00':e.start_time?.slice(0,5))+'</small></span><strong>'+esc(e.title)+'</strong>'+'</button>').join('')+'</div>';
  }).join('')+'</div></div>';
  const old=root.querySelector('.family-scroll');const y=old?.scrollTop??330;

@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.7.3';
+export const APP_VERSION = '1.7.4';
 export function localDate(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
@@ -20,6 +20,14 @@ export function eventTime(event) { return event.all_day ? 'Ganztägig' : event.s
 export function assignmentIds(event,role) {
   if(Array.isArray(event.assignments))return [...new Set(event.assignments.filter(a=>a.role===role).map(a=>a.person_id||a.member_user_id||a.test_member_id).filter(Boolean))];
   return [event[{assignee:'assignee_id',to:'transport_to_id',from:'transport_from_id'}[role]]].filter(Boolean);
+}
+// Display membership is derived; explicit calendar links remain the write boundary.
+export function eventCalendarIds(event,calendars,people=[]) {
+ const ids=new Set((event.calendar_links||[]).map(l=>l.calendar_id));
+ const responsible=new Set(['to','from','assignee'].flatMap(role=>assignmentIds(event,role)));
+ if(event.assignee_all){const all=event.all_task_person_ids||people.filter(p=>p.is_active!==false&&p.include_in_all_tasks!==false).map(p=>p.user_id||p.id);all.forEach(id=>responsible.add(id));}
+ calendars.filter(c=>responsible.has(c.person_id)).forEach(c=>ids.add(c.id));
+ return [...ids];
 }
 export function assignedTo(event, userId) { return !!userId && ((event.calendar_people||[]).includes(userId) || (event.assignee_all && (!event.all_task_person_ids||event.all_task_person_ids.includes(userId))) || ['assignee','to','from'].some(role=>assignmentIds(event,role).includes(userId))); }
 export function eventRoles(event, userId) {

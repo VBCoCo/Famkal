@@ -85,3 +85,12 @@ test('adjacent short events use one lane while real conflicts reuse lanes correc
  let rows=layoutDayEvents([swim,bring,hint],'2026-10-05');assert.ok(rows.every(r=>r.lane===0&&r.lanes===1));
  const parallel={...base,id:'parallel',start_time:'14:55',end_time:'16:00'};rows=layoutDayEvents([bring,swim,parallel],'2026-10-05');assert.equal(rows.find(r=>r.event.id==='bring').lane,rows.find(r=>r.event.id==='swim').lane);assert.notEqual(rows.find(r=>r.event.id==='swim').lane,rows.find(r=>r.event.id==='parallel').lane);assert.ok(rows.every(r=>r.lanes===2));
 });
+
+test('calendar display derives all responsibility roles and the explicit All group without duplicates',async()=>{
+ const {eventCalendarIds}=await import('../calendar-utils.js');const calendars=[{id:'leo',person_id:'leo'},{id:'robert',person_id:'r'},{id:'anna',person_id:'a'}],people=[{id:'r',include_in_all_tasks:true,is_active:true},{id:'a',include_in_all_tasks:false,is_active:true},{id:'test',include_in_all_tasks:true,is_active:true}];
+ const base={calendar_links:[{calendar_id:'leo'}]};
+ for(const role of ['to','from','assignee'])assert.deepEqual(eventCalendarIds({...base,assignments:[{role,person_id:'a'}]},calendars,people),['leo','anna']);
+ assert.deepEqual(eventCalendarIds({...base,assignee_all:true},calendars,people),['leo','robert']);
+ assert.deepEqual(eventCalendarIds({...base,assignments:[{role:'to',person_id:'r'},{role:'from',person_id:'r'},{role:'assignee',person_id:'r'}]},calendars,people),['leo','robert']);
+ assert.deepEqual(eventCalendarIds({...base,transport_to_id:'r'},calendars,people),['leo','robert']);assert.deepEqual(base.calendar_links,[{calendar_id:'leo'}]);
+});

@@ -237,7 +237,7 @@ test('compact cards expand separately from editing, own color and no redundant o
   f.w.testApp.setEvents([makeEvent('appointment',{assignee_id:'u2',transport_to_id:'u1',location:'Praxis',notes:'Notiz'})]);
   f.w.document.querySelector('[data-filter=mine]').click();
   const card=f.w.document.querySelector('#upcomingList .event-card');
-  assert.match(card.style.getPropertyValue('--assignment'),/#0066ff/);assert.match(card.style.getPropertyValue('--assignment'),/#ff0000/);assert.ok(!card.textContent.includes('Robert'));
+  assert.match(card.style.getPropertyValue('--assignment'),/#0066ff/);assert.match(card.style.getPropertyValue('--assignment'),/#ff0000/);assert.ok(!card.querySelector('.chips').textContent.includes('Robert'));
   assert.ok(card.textContent.includes('Anna'));assert.ok(!card.querySelector('summary').textContent.includes('Praxis'));
   assert.equal(card.querySelector('details').open,false);card.querySelector('details').open=true;
   assert.equal(f.w.document.querySelector('#eventDialog').open,false);
@@ -319,7 +319,7 @@ test('shared compact header contains calendar selection and version is confined 
  const f=fixture();try{
   const d=f.w.document;assert.ok(d.querySelector('header #calendarPicker'));assert.equal(d.querySelector('.calendar-picker-bar'),null);assert.doesNotMatch(d.querySelector('.app-top').textContent,/1\.7\./);assert.doesNotMatch(d.querySelector('#auth').textContent,/1\.7\./);
   for(const view of ['today','family','week','tasks']){f.w.testApp.navigate(view);assert.equal(d.querySelector('#calendarFilters').classList.contains('hidden'),false);}
-  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.3/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.3/);
+  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.4/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.4/);
   d.querySelector('#settingsDialog').close();d.querySelector('#availabilityInfo').click();assert.match(d.querySelector('#settingsContent').textContent,/nicht automatisch bestätigt verfügbar/);
  }finally{f.close();}
 });
@@ -330,5 +330,16 @@ test('compact summary escapes notes and hides editing for another personal calen
   f.w.testApp.openEventSummary(event);const d=f.w.document;
   assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),true);assert.ok(d.querySelector('#eventSummaryContent details'));assert.equal(d.querySelector('#eventSummaryContent details').open,false);assert.equal(d.querySelector('#eventSummaryContent img'),null);assert.match(d.querySelector('#eventSummaryContent').textContent,/Bringt.*Robert/);assert.equal(f.calls.length,0);
   f.w.testApp.clearSession();assert.equal(d.querySelector('#eventSummaryDialog').open,false);assert.equal(d.querySelector('#eventSummaryContent').textContent,'');
+ }finally{f.close();}
+});
+
+test('responsibility shows an existing Leo event in Robert calendar without adding write links',()=>{
+ const f=fixture();try{
+  const day=utils.localDate(),event=makeEvent('bring',{event_date:day,created_by:'another',event_type:'transport',assignments:[{role:'to',person_id:'u1'}]});
+  f.w.testApp.setEvents([event]);f.w.testApp.setCalendarSelection(['robert']);f.w.testApp.renderFamily();const d=f.w.document;
+  assert.equal(d.querySelectorAll('[data-family-event="bring"]').length,1);assert.match(d.querySelector('#todayList').textContent,/bring/);
+  f.w.testApp.setRole('member');d.querySelector('[data-family-event="bring"]').click();assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),true);d.querySelector('#eventSummaryDialog').close();
+  f.w.testApp.setRole('owner');f.w.testApp.openEvent(event);assert.match(d.querySelector('#automaticCalendars').textContent,/Robert/);assert.equal(d.querySelector('#eventCalendars input[value="robert"]').checked,false);assert.deepEqual(Array.from(f.w.testApp.payload().calendar_ids),['leo']);
+  d.querySelector('#transportTo').value='';d.querySelector('#transportTo').dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(d.querySelector('#automaticCalendars').textContent,'');
  }finally{f.close();}
 });

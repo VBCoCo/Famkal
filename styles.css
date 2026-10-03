@@ -41,3 +41,7 @@ dialog{inset:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-lef
 .app,.auth,dialog,button,a,input,select,textarea,summary{touch-action:manipulation}
 /* iOS focuses small input text by zooming. Override compact field rules too. */
 input,select,textarea{font-size:16px!important}
+
+.event-time-row{display:grid;grid-template-columns:40px minmax(0,1fr) 96px;gap:4px;align-items:center;margin:8px 0}.event-time-row.all-day{grid-template-columns:40px minmax(0,1fr)}.event-time-row>strong{font-size:.8rem}.event-time-row label{margin:0;min-width:0}.event-time-row input{height:36px;min-width:0;max-width:100%;padding:4px 3px}.all-day-picker{display:flex;justify-content:space-between;align-items:center;font-size:.85rem;margin:8px 0}.all-day-picker select{width:100px;padding:5px;min-height:36px}#automaticCalendars:empty{display:none}
+
+#eventDialog{padding:8px}.event-time-row input{font-weight:400}
