@@ -1,4 +1,4 @@
-# Leonhards Familienkalender — Famkal 1.7.6
+# Leonhards Familienkalender — Famkal 1.7.7
 
 ## Echte Push-Erinnerungen (1.6.0)
 
@@ -411,3 +411,7 @@ Einzelpersonen bleiben bei Alle antippbar; Auswählen einer Person deaktiviert A
 ### Änderung in 1.7.6
 
 Die Zusatzfelder Bringt/Holt und ihre Aufgaben-, Farb-, Kalender- und Erinnerungslogik entfallen vollständig. Alte Zuordnungen und Datenbankspalten werden ausdrücklich gelöscht; eigenständige Fahrten bleiben Termine mit normaler Zuständigkeit.
+
+## Einladungsabschluss (1.7.7)
+
+Die Kalenderprüfung beim Abschluss eines Einladungslinks verwendet eindeutige Tabellenaliase für ID, Familie, Ablauf und Verwendung. Regressionstest reproduziert den ursprünglichen Fehler und prüft danach den vollständigen Prepare/Finish/Join-Ablauf sowie Zielkonto, Ablauf, Archivierung, Wiederverwendung, Rechte und Recovery. Bestehende Konten und Einladungen bleiben erhalten.
