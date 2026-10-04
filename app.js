@@ -9,7 +9,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 let sb, user=null, member=null, members=[], testMembers=[], events=[], series=[], weekOffset=0, calendarFilter='all', taskFilter='all', taskLimit=50, upcomingLimit=5, pendingVacation=null, editingStamp=null;
 const expandedEvents=new Set();
-let profiles=[],calendars=[],selectedCalendars=null,familyDay=localDate();
+let profiles=[],calendars=[],selectedCalendars=null,familyDay=localDate(),weekCalendarId=null;
 let accessLink=null, pendingFamilyCode=null;
 let refreshNumber=0, authNumber=0, pendingScope=null, recovery=false, initialized=false, currentView='today', toastTimer;
 const admin = () => ['owner','admin'].includes(member?.role);
@@ -31,7 +31,7 @@ const errorText = error => !navigator.onLine ? 'Offline: Zum Laden und Speichern
 function show(id) { ['auth','onboarding','app'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id)); }
 function clearSession() {
   authNumber++; refreshNumber++; user=null; member=null; members=[]; testMembers=[]; profiles=[]; calendars=[]; selectedCalendars=null; events=[]; series=[]; pendingVacation=null;editingStamp=null;
-  weekOffset=0; currentView='today'; pendingScope=null; calendarFilter='all'; taskFilter='all'; taskLimit=50; upcomingLimit=5; expandedEvents.clear();
+  weekOffset=0; weekCalendarId=null; currentView='today'; pendingScope=null; calendarFilter='all'; taskFilter='all'; taskLimit=50; upcomingLimit=5; expandedEvents.clear();
   $$('dialog[open]').forEach(d=>d.close());
   $('#settingsContent').replaceChildren(); $('#inviteLinkBox').classList.add('hidden');
   ['eventSummaryContent','familyBoard','todayList','upcomingList','weekList','tasksList','adminContent','nextTask'].forEach(id=>$('#'+id).replaceChildren());
@@ -56,8 +56,11 @@ function navigate(view) {
   $$('.view').forEach(v=>v.classList.toggle('active',v.id===view+'View'));
   $$('nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
   $('#title').textContent={today:'Heute',week:'Woche',family:'Familie',tasks:'Aufgaben',admin:'Admin',more:'Mehr'}[view];
-  document.body.classList.toggle('family-mode',view==='family');
+  document.body.classList.toggle('family-mode',['family','week'].includes(view));
+  document.body.classList.toggle('week-mode',view==='week');
+  $('#calendarPicker').classList.toggle('hidden',view==='week');
   if(view==='family')renderFamily();
+  if(view==='week')renderWeek();
   syncFilters();
 }
 function syncFilters() {
@@ -122,7 +125,7 @@ const normalizeEvent=e=>({...e,calendar_people:(e.calendar_links||[]).map(link=>
 const displayCalendarIds=e=>eventCalendarIds(e,calendars,allPeople());
 const selectedEvents=({tasks=false}={})=>calendars.length?events.filter(e=>eventCalendarIds(e,calendars,allPeople(),{includeBedtimeResponsibilities:tasks}).some(id=>selectedCalendars?.includes(id))):events;
 const person=id=>allPeople().find(m=>m.user_id===id);
-const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',care:'🏠',bedtime:'🛏️',vacation:'🏖️'}[type]||'📅');
+const typeIcon=type=>({school:'🎓',transport:'🚗',appointment:'📅',swimming:'🏊',care:'🏠',bedtime:'🛏️',vacation:'🏖️'}[type]||'📅');
 function card(event, {mine=false, task=false, day=event.event_date}={}) {
   const chips=[];
   for(const [role,label] of [['assignee','Zuständig']]) for(const id of assignmentIds(event,role))if(!mine||id!==myPersonId())chips.push(label+': '+esc(person(id)?.display_name||'Unbekannt'));
@@ -162,13 +165,21 @@ function renderToday() {
 function renderWeek() {
   const [start,end]=weekBounds(weekOffset);
   $('#weekRange').textContent=start.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+'–'+end.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
-  let html='';
-  for(let day=new Date(start);day<=end;day=addDays(day,1)) {
-    const list=filterEvents(selectedEvents().filter(e=>eventOnDay(e,localDate(day))),calendarFilter,myPersonId());
-    html+='<h3>'+day.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})+'</h3>'+
-      (list.length?list.map(e=>card(e,{mine:calendarFilter==='mine',day:localDate(day)})).join(''):'<div class="empty">Keine passenden Termine</div>');
-  }
-  $('#weekList').innerHTML=html; bindCards();
+  if(!weekCalendarId)weekCalendarId=localStorage.getItem('famkal-week-calendar-'+user?.id);
+  if(!calendars.some(c=>c.id===weekCalendarId))weekCalendarId=(calendars.find(c=>c.is_active&&c.allow_family_create)||calendars.find(c=>c.is_active)||calendars[0])?.id;
+  const calendar=calendars.find(c=>c.id===weekCalendarId),root=$('#weekList');
+  $('#weekCalendar').innerHTML=calendars.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.display_name)+(c.is_active?'':' · archiviert')+'</option>').join('');
+  $('#weekCalendar').value=weekCalendarId||'';
+  if(currentView==='week')$('#title').textContent='Woche'+(calendar?' · '+calendar.display_name:'');
+  if(!calendar){root.innerHTML='<div class="empty">Kein Kalender vorhanden.</div>';return;}
+  const filtered=filterEvents(events.filter(e=>displayCalendarIds(e).includes(calendar.id)),calendarFilter,myPersonId());
+  const days=Array.from({length:7},(_,i)=>localDate(addDays(start,i)));
+  let html='<div class="family-scroll" tabindex="0" aria-label="Wochenkalender '+esc(calendar.display_name)+', Montag bis Sonntag, vertikal verschiebbar"><div class="family-grid" style="--columns:7"><div class="family-corner">Zeit</div>'+days.map(day=>'<div class="family-column-heading"><strong>'+dateAtNoon(day).toLocaleDateString('de-DE',{weekday:'short'})+'</strong><small>'+dateAtNoon(day).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+'</small></div>').join('');
+  if(filtered.some(e=>e.all_day&&days.some(day=>eventOnDay(e,day))))html+='<div class="family-allday-label">Tag</div>'+days.map(day=>'<div class="family-allday">'+filtered.filter(e=>e.all_day&&eventOnDay(e,day)).map(e=>'<button type="button" data-week-event="'+esc(e.id)+'" class="family-all-event" style="--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(day+' · '+e.title+' · Ganztägig')+'">'+typeIcon(e.event_type)+'<strong>'+esc(e.title)+'</strong></button>').join('')+'</div>').join('');
+  html+='<div class="family-hours">'+Array.from({length:24},(_,i)=>'<span style="top:'+i*48+'px">'+String(i).padStart(2,'0')+':00</span>').join('')+'</div>';
+  html+=days.map(day=>'<div class="family-day-column">'+layoutDayEvents(filtered.filter(e=>!e.all_day&&eventOnDay(e,day)),day).map(({event:e,start,end,lane,lanes})=>'<button type="button" data-week-event="'+esc(e.id)+'" class="family-time-event'+(e.blocks_time===false?' time-hint':'')+(e.is_cancelled?' cancelled':'')+'" style="top:'+start*.8+'px;height:'+Math.max(.8,(end-start)*.8)+'px;left:calc('+lane*100/lanes+'% + 1px);width:calc('+100/lanes+'% - 2px);--assignment:'+assignmentColors(e,allPeople())+'" aria-label="'+esc(day+' · '+e.title+' · '+cardTime(e,day))+'"><span class="family-event-meta"><span class="family-event-icon" aria-hidden="true">'+typeIcon(e.event_type)+'</span><small>'+esc(start===0&&e.event_date<day?'00:00':e.start_time?.slice(0,5))+'</small></span><strong>'+esc(e.title)+'</strong></button>').join('')+'</div>').join('')+'</div></div>';
+  const y=root.querySelector('.family-scroll')?.scrollTop??330;root.innerHTML=html;root.querySelector('.family-scroll').scrollTop=y;
+  root.querySelectorAll('[data-week-event]').forEach(b=>b.onclick=()=>{const e=events.find(e=>e.id===b.dataset.weekEvent);if(e)openEventSummary(e);});
 }
 function renderTasks() {
   const today=localDate(), end=localDate(addDays(new Date(),120));
@@ -464,6 +475,8 @@ function bindUI() {
   $('#refresh').onclick=()=>busy($('#refresh'),refreshAll);
   const changeWeek=async delta=>{weekOffset+=delta; $('#weekList').innerHTML='<div class="empty">Termine werden geladen …</div>'; try{await refreshAll();}catch(error){$('#weekList').innerHTML='<div class="empty">Termine konnten nicht geladen werden. Bitte aktualisieren.</div>';toast(errorText(error));}};
   $('#prevWeek').onclick=()=>changeWeek(-1); $('#nextWeek').onclick=()=>changeWeek(1);
+  $('#weekToday').onclick=()=>changeWeek(-weekOffset);
+  $('#weekCalendar').onchange=()=>{weekCalendarId=$('#weekCalendar').value;localStorage.setItem('famkal-week-calendar-'+user.id,weekCalendarId);renderWeek();};
   $('#addReminder').onclick=()=>addReminder(); $('#allDay').onchange=toggleAllDay;
   $('#eventForm').addEventListener('change',updateAutomaticCalendars);
   $('#eventForm').onsubmit=saveEvent; $('#deleteEvent').onclick=deleteEvent;

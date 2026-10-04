@@ -1,4 +1,10 @@
-# Leonhards Familienkalender — Famkal 1.7.9
+# Leonhards Familienkalender — Famkal 1.8.0
+
+## Wochenkalender und Schwimmen (1.8.0)
+
+„Woche“ zeigt genau einen separat gewählten Kalender als Zeitraster mit sieben Tagesspalten (Montag–Sonntag), Ganztagszeile und Überlappungen. Die Auswahl wird pro Konto gespeichert und verändert nicht die eingeblendeten Kalender anderer Ansichten. Terminantippen öffnet die bestehende kompakte Übersicht. Sieben Spalten teilen auch am iPhone die verfügbare Breite; Texte werden dort verkürzt. Keine Einträge bedeuten weiterhin keine bestätigte Verfügbarkeit.
+
+Die neue Terminart „Schwimmen“ (swimming, 🏊) unterstützt die bestehenden Zuständigkeiten, Serien und Erinnerungen. Vorhandene Termine werden nicht umbenannt oder umkategorisiert. Die Migration erweitert ausschließlich die erlaubten Terminarten; sie verändert keine Bestandsdaten.
 
 ## Echte Push-Erinnerungen (1.6.0)
 

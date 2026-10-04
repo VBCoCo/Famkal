@@ -192,6 +192,10 @@ test('series metadata is visible but ineffective recurrence changes are disabled
   }finally{f.close();}
 });
 const makeEvent=(id,extra={})=>({id,title:id,event_date:utils.localDate(utils.addDays(new Date(),1)),event_type:'appointment',start_time:'15:00:00',created_by:'u1',reminders:[],end_time:'16:00:00',calendar_links:[{calendar_id:'leo'}],...extra});
+
+test('week has seven days, one independent calendar and persistent account selection',()=>{const f=fixture();try{const d=f.w.document;f.w.testApp.setCalendarSelection(['robert']);f.w.testApp.navigate('week');assert.equal(d.querySelectorAll('#weekList .family-column-heading').length,7);assert.equal(d.querySelector('#weekCalendar').value,'leo');assert.equal(d.querySelector('#title').textContent,'Woche · Leo');assert.ok(d.querySelector('#calendarPicker').classList.contains('hidden'));d.querySelector('#weekCalendar').value='robert';d.querySelector('#weekCalendar').dispatchEvent(new f.w.Event('change'));assert.equal(f.w.localStorage.getItem('famkal-week-calendar-u1'),'robert');assert.equal(f.w.localStorage.getItem('famkal-calendars-u1'),'["robert"]');assert.equal(d.querySelector('#title').textContent,'Woche · Robert');f.w.testApp.navigate('family');assert.ok(!d.querySelector('#calendarPicker').classList.contains('hidden'));}finally{f.close();}});
+test('week swimming opens compact details and preserves its editor type',()=>{const f=fixture();try{const day=utils.localDate(utils.weekBounds(0)[0]);f.w.testApp.setEvents([makeEvent('swim',{event_type:'swimming',event_date:day,title:'Training'})]);f.w.testApp.navigate('week');const d=f.w.document,b=d.querySelector('[data-week-event=swim]');assert.ok(b);assert.equal(b.querySelector('.family-event-icon').textContent,'🏊');b.click();assert.equal(d.querySelector('#eventSummaryDialog').open,true);d.querySelector('#summaryEdit').click();assert.equal(d.querySelector('#eventType').value,'swimming');assert.equal(f.w.testApp.payload().event_type,'swimming');}finally{f.close();}});
+test('week repeats overnight and all-day entries only on days they occupy',()=>{const f=fixture();try{const day=utils.localDate(utils.weekBounds(0)[0]),next=utils.localDate(utils.addDays(utils.dateAtNoon(day),1));f.w.testApp.setEvents([makeEvent('night',{event_date:day,end_date:next,start_time:'23:00',end_time:'01:00'}),makeEvent('holiday',{event_date:day,end_date:next,all_day:true}),makeEvent('cancel',{event_date:day,is_cancelled:true})]);const d=f.w.document;assert.equal(d.querySelectorAll('[data-week-event=night]').length,2);assert.equal(d.querySelectorAll('[data-week-event=holiday]').length,2);assert.equal(d.querySelectorAll('[data-week-event=cancel]').length,0);assert.equal(d.querySelectorAll('#weekList .family-allday').length,7);d.querySelector('[data-filter=cancelled]').click();assert.equal(d.querySelectorAll('[data-week-event=cancel]').length,1);assert.equal(d.querySelectorAll('[data-week-event=night]').length,0);}finally{f.close();}});
 test('empty today still shows upcoming assigned appointments and more works',()=>{
  const f=fixture();try{
   f.w.testApp.setEvents(Array.from({length:7},(_,n)=>makeEvent('future'+n,{assignee_id:'u1'})));
@@ -280,9 +284,9 @@ test('four calendars render independent columns and visibility selection persist
   const profiles=[{id:'p1',linked_user_id:'u1',display_name:'Robert',color:'#0061fe',is_active:true,include_in_all_tasks:true}];
   const names=['Leo','Robert','Anna','Oma Lena'],cals=names.map((display_name,i)=>({id:'c'+i,person_id:i===1?'p1':'p'+i,display_name,is_active:true,allow_family_create:i===0}));
   f.w.testApp.setCalendars(cals,profiles);f.w.testApp.renderFamily();
-  assert.equal(f.w.document.querySelectorAll('.family-column-heading').length,4);
-  assert.equal(f.w.document.querySelector('.family-column-heading').textContent,'Leo');
-  f.w.testApp.setCalendarSelection(['c1']);assert.equal(f.w.document.querySelectorAll('.family-column-heading').length,1);
+  assert.equal(f.w.document.querySelectorAll('#familyBoard .family-column-heading').length,4);
+  assert.equal(f.w.document.querySelector('#familyBoard .family-column-heading').textContent,'Leo');
+  f.w.testApp.setCalendarSelection(['c1']);assert.equal(f.w.document.querySelectorAll('#familyBoard .family-column-heading').length,1);
   assert.equal(f.w.localStorage.getItem('famkal-calendars-u1'),'["c1"]');
   f.w.testApp.openEvent();assert.equal(f.w.document.querySelector('#eventCalendars input:checked').value,'c1');
  }finally{f.close();}
@@ -307,19 +311,19 @@ test('compact family events show type icons, preserve details and hide empty all
   const day=utils.localDate();
   f.w.testApp.setEvents([makeEvent('sleep',{title:'Bettgehzeit',event_type:'bedtime',event_date:day,end_date:utils.localDate(utils.addDays(utils.dateAtNoon(day),1)),start_time:'20:15',end_time:'06:30'}),makeEvent('drive',{event_type:'transport',event_date:day})]);
   f.w.testApp.renderFamily();const d=f.w.document;
-  assert.equal(d.querySelector('.family-allday-label'),null);
+  assert.equal(d.querySelector('#familyBoard .family-allday-label'),null);
   const bedtime=d.querySelector('[data-family-event="sleep"]');assert.equal(bedtime.querySelector('.family-event-icon').textContent,'🛏️');assert.match(bedtime.getAttribute('aria-label'),/Bettgehzeit/);
   assert.equal(d.querySelector('[data-family-event="drive"] .family-event-icon').textContent,'🚗');
   bedtime.click();assert.equal(d.querySelector('#eventSummaryDialog').open,true);assert.match(d.querySelector('#eventSummaryContent').textContent,/06:30/);assert.equal(d.querySelector('#eventDialog').open,false);assert.equal(d.querySelector('#summaryEdit').classList.contains('hidden'),false);d.querySelector('#summaryEdit').click();assert.equal(d.querySelector('#eventSummaryDialog').open,false);assert.equal(d.querySelector('#eventDialog').open,true);assert.equal(d.querySelector('#eventTitle').value,'Bettgehzeit');assert.equal(d.querySelector('#endTime').value,'06:30');
-  d.querySelector('#eventDialog').close();f.w.testApp.setEvents([makeEvent('day',{all_day:true,event_date:day})]);f.w.testApp.renderFamily();assert.ok(d.querySelector('.family-allday-label'));assert.equal(d.querySelectorAll('.family-allday').length,2);
-  f.w.testApp.setCalendarSelection(['robert']);assert.equal(d.querySelector('.family-allday-label'),null);assert.equal(d.querySelectorAll('.family-column-heading').length,1);
+  d.querySelector('#eventDialog').close();f.w.testApp.setEvents([makeEvent('day',{all_day:true,event_date:day})]);f.w.testApp.renderFamily();assert.ok(d.querySelector('#familyBoard .family-allday-label'));assert.equal(d.querySelectorAll('#familyBoard .family-allday').length,2);
+  f.w.testApp.setCalendarSelection(['robert']);assert.equal(d.querySelector('#familyBoard .family-allday-label'),null);assert.equal(d.querySelectorAll('#familyBoard .family-column-heading').length,1);
  }finally{f.close();}
 });
 test('shared compact header contains calendar selection and version is confined to More and profile',()=>{
  const f=fixture();try{
   const d=f.w.document;assert.ok(d.querySelector('header #calendarPicker'));assert.equal(d.querySelector('.calendar-picker-bar'),null);assert.doesNotMatch(d.querySelector('.app-top').textContent,/1\.7\./);assert.doesNotMatch(d.querySelector('#auth').textContent,/1\.7\./);
   for(const view of ['today','family','week','tasks']){f.w.testApp.navigate(view);assert.equal(d.querySelector('#calendarFilters').classList.contains('hidden'),false);}
-  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.7\.9/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.7\.9/);
+  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.8\.0/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.8\.0/);
   d.querySelector('#settingsDialog').close();d.querySelector('#availabilityInfo').click();assert.match(d.querySelector('#settingsContent').textContent,/nicht automatisch bestätigt verfügbar/);
  }finally{f.close();}
 });

@@ -18,7 +18,7 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   grant usage on schema auth to authenticated,anon,service_role;grant execute on function auth.uid(),auth.role() to authenticated,anon,service_role;
   create function gen_random_bytes(n int) returns bytea language sql volatile as $$select decode(left(replace(gen_random_uuid()::text,'-','')||replace(gen_random_uuid()::text,'-',''),n*2),'hex')$$;`);
   await db.exec(fs.readFileSync(new URL('supabase.txt',root),'utf8').replace('create extension if not exists pgcrypto;',''));
-  for(const p of fs.readdirSync(new URL('supabase/migrations/',root)).filter(x=>x.endsWith('.sql')&&!/v170|v173|v175|v176|v177|schedule_v160/.test(x)).sort()){
+  for(const p of fs.readdirSync(new URL('supabase/migrations/',root)).filter(x=>x.endsWith('.sql')&&!/v170|v173|v175|v176|v177|v180|schedule_v160/.test(x)).sort()){
    let sql=fs.readFileSync(new URL('supabase/migrations/'+p,root),'utf8').replace(/create extension if not exists pg_cron;/g,'').replace(/create extension if not exists pg_net with schema extensions;/g,'');
    if(p.includes('activate_invite'))sql="select set_config('famkal.auth_config_verified','yes',true);\n"+sql;
    await db.exec(sql);
@@ -40,6 +40,8 @@ test('PostgreSQL migration, calendar rights, invitations, tasks and own reminder
   await db.exec('rollback');
   await db.exec(fs.readFileSync(new URL('supabase/migrations/20261003093440_invitation_alias_fix_v177.sql',root),'utf8'));
   await db.exec(fs.readFileSync(new URL('tests/invitation-production.sql',root),'utf8'));
+  await db.exec(fs.readFileSync(new URL('supabase/migrations/20261004185759_swimming_type_v180.sql',root),'utf8'));
+  await db.exec(fs.readFileSync(new URL('tests/swimming-production.sql',root),'utf8'));
   const after=(await query('select to_jsonb(e) value from public.events e'))[0].value;delete after.blocks_time;delete original.transport_to_id;delete original.transport_from_id;assert.deepEqual(after,original);
   assert.equal((await query("select count(*)::int n from public.event_assignments where role<>'assignee'"))[0].n,0);
   assert.equal((await query("select count(*)::int n from information_schema.columns where table_schema='public' and table_name='events' and column_name in ('transport_to_id','transport_from_id')"))[0].n,0);
