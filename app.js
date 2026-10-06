@@ -1,4 +1,5 @@
 import { mountPushSettings, disablePushDevice } from './push-settings.js';
+import { EventCache, sessionRead } from './event-cache.js';
 import { createClient } from './vendor/supabase.js';
 import { mountProjectList } from './project-list.js';
 import { parseAccessLink, redeemAccessLink, requestAccessLink, requestRecoveryEmail } from './access-links.js';
@@ -8,6 +9,7 @@ const cfg = window.APP_CONFIG || {};
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 let sb, user=null, member=null, members=[], testMembers=[], events=[], series=[], weekOffset=0, calendarFilter='all', taskFilter='all', taskLimit=50, upcomingLimit=5, pendingVacation=null, editingStamp=null;
+let eventCache=new EventCache(),metadataLoaded=false,cacheTime=0,loadController=null;
 const expandedEvents=new Set();
 let profiles=[],calendars=[],selectedCalendars=null,familyDay=localDate(),weekCalendarId=null;
 let accessLink=null, pendingFamilyCode=null;
@@ -30,6 +32,7 @@ const errorText = error => !navigator.onLine ? 'Offline: Zum Laden und Speichern
   (error?.message || 'Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.');
 function show(id) { ['auth','onboarding','app'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id)); }
 function clearSession() {
+  loadController?.abort();eventCache=new EventCache();metadataLoaded=false;cacheTime=0;
   authNumber++; refreshNumber++; user=null; member=null; members=[]; testMembers=[]; profiles=[]; calendars=[]; selectedCalendars=null; events=[]; series=[]; pendingVacation=null;editingStamp=null;
   weekOffset=0; weekCalendarId=null; currentView='today'; pendingScope=null; calendarFilter='all'; taskFilter='all'; taskLimit=50; upcomingLimit=5; expandedEvents.clear();
   $$('dialog[open]').forEach(d=>d.close());
@@ -86,28 +89,37 @@ async function openNotificationEvent() {
   if(user?.id!==userId||member?.family_id!==family)return;
   if(event)openEvent(normalizeEvent(event));else toast('Der Termin ist nicht mehr verfügbar.');
 }
-async function fetchEvents(start,end,family) {
+async function fetchEvents(start,end,family,signal) {
   const all=[], pageSize=500;
   for(let offset=0;;offset+=pageSize) {
     const page=check(await sb.from('events').select('*,assignments:event_assignments(role,person_id,member_user_id,test_member_id),calendar_links:event_calendars(calendar_id)').eq('family_id',family).lte('event_date',end)
-      .or('end_date.gte.'+start+',and(end_date.is.null,event_date.gte.'+start+')').order('event_date').order('start_time',{nullsFirst:true}).order('id').range(offset,offset+pageSize-1));
+      .or('end_date.gte.'+start+',and(end_date.is.null,event_date.gte.'+start+')').order('event_date').order('start_time',{nullsFirst:true}).order('id').range(offset,offset+pageSize-1).abortSignal(signal));
     all.push(...page);
     if(page.length<pageSize) return all;
   }
 }
-async function refreshAll() {
+async function refreshAll({force=true}={}) {
   if(!member||!user) return;
   const request=++refreshNumber, family=member.family_id, userId=user.id, offset=weekOffset;
-  const [start,end]=queryBounds(offset);
-  const [people,items,recurrences,tests,persons,cals]=await Promise.all([
-    sb.from('family_members').select('*').eq('family_id',family).order('display_name'),
-    fetchEvents(start,end,family), sb.from('event_series').select('*').eq('family_id',family),sb.from('test_members').select('*').eq('family_id',family).eq('is_active',true).order('display_name'),
-    sb.from('family_people').select('*').eq('family_id',family),sb.from('calendars').select('*').eq('family_id',family).order('sort_order').order('display_name')
+  if(force||Date.now()-cacheTime>300000){loadController?.abort();eventCache=new EventCache();metadataLoaded=false;cacheTime=Date.now();}
+  const cache=eventCache,controller=new AbortController();loadController=controller;
+  const timeout=setTimeout(()=>controller.abort(),20000);
+  try {await sessionRead(sb,userId,async()=>{
+  const today=localDate(),rangeEnd=localDate(addDays(dateAtNoon(today),30)),[start,end]=weekBounds(offset).map(localDate);
+  const items=await cache.load([[today,rangeEnd],[start,end],[familyDay,familyDay]],(a,b)=>fetchEvents(a,b,family,controller.signal));
+  let people={data:members},recurrences={data:series},tests={data:testMembers},persons={data:profiles},cals={data:calendars};
+  if(!metadataLoaded){
+  [people,recurrences,tests,persons,cals]=await Promise.all([
+    sb.from('family_members').select('*').eq('family_id',family).order('display_name').abortSignal(controller.signal),
+    sb.from('event_series').select('*').eq('family_id',family).abortSignal(controller.signal),sb.from('test_members').select('*').eq('family_id',family).eq('is_active',true).order('display_name').abortSignal(controller.signal),
+    sb.from('family_people').select('*').eq('family_id',family).abortSignal(controller.signal),sb.from('calendars').select('*').eq('family_id',family).order('sort_order').order('display_name').abortSignal(controller.signal)
   ]);
+  }
   const loadedPeople=check(people), loadedSeries=check(recurrences);
   if(request!==refreshNumber||family!==member?.family_id||userId!==user?.id) return;
   members=loadedPeople; events=items; series=loadedSeries;testMembers=check(tests).map(m=>({...m,user_id:m.id,is_test:true}));
   profiles=check(persons);calendars=check(cals);
+  metadataLoaded=true;
   if(selectedCalendars===null){try{const saved=JSON.parse(localStorage.getItem('famkal-calendars-'+userId));selectedCalendars=Array.isArray(saved)?saved:calendars.filter(c=>c.is_active).map(c=>c.id);}catch{selectedCalendars=calendars.filter(c=>c.is_active).map(c=>c.id);}}
   selectedCalendars=selectedCalendars.filter(id=>calendars.some(c=>c.id===id));
   events=events.map(normalizeEvent);
@@ -118,6 +130,7 @@ async function refreshAll() {
   $('#adminNav').classList.toggle('hidden',!admin());
   navigate(currentView); renderToday(); renderWeek(); renderTasks(); renderFamily(); fillPeople();
   if(admin()) renderAdmin(); else $('#adminContent').replaceChildren();
+  });}catch(error){if(request!==refreshNumber||userId!==user?.id)return;if(error?.code==='SESSION_REQUIRED'){clearSession();$('#authInfo').textContent=error.message;throw error;}if(controller.signal.aborted)throw new Error('Das Laden dauert zu lange. Bitte Verbindung prüfen und erneut versuchen.');throw error;}finally{clearTimeout(timeout);}
 }
 const allPeople=()=>profiles.length?profiles.filter(p=>p.is_active).map(p=>({...p,user_id:p.id})):[...members,...testMembers];
 const myPersonId=()=>profiles.find(p=>p.linked_user_id===user?.id)?.id||user?.id;
@@ -156,8 +169,8 @@ function renderToday() {
   $('#todayList').innerHTML=list.length?list.map(e=>card(e,{mine,day:today})).join(''):'<div class="empty">'+(calendarFilter!=='all'?'Heute keine passenden Termine.':'Heute ist nichts eingetragen.')+'</div>';
   $('#nextTask').innerHTML=next?'<small>NÄCHSTER TERMIN</small><h2>'+esc(next.title)+'</h2><div>'+eventTime(next)+(eventRoles(next,mine?myPersonId():undefined).length?' · '+eventRoles(next,mine?myPersonId():undefined).map(esc).join(' · '):'')+'</div>':
     '<small>HEUTE</small><h2>Keine weiteren zeitgebundenen Termine</h2>';
-  const upcoming=filtered.filter(e=>e.event_date>today&&e.event_date<=localDate(addDays(new Date(),120)));
-  $('#upcomingList').innerHTML=upcoming.length?groupedCards(upcoming.slice(0,upcomingLimit),{mine}):'<div class="empty">Keine kommenden Termine'+(mine?' für dich':'')+'.</div>';
+  const upcoming=filtered.filter(e=>e.event_date>today&&e.event_date<=localDate(addDays(new Date(),30)));
+  $('#upcomingList').innerHTML=upcoming.length?groupedCards(upcoming.slice(0,upcomingLimit),{mine}):'<div class="empty">Keine kommenden Termine'+(mine?' für dich':'')+' in den nächsten 30 Tagen.</div>';
   $('#moreUpcoming').classList.toggle('hidden',upcoming.length<=upcomingLimit);
   if(calendarFilter==='cancelled')$('#nextTask').innerHTML='<small>ABGESAGT</small><h2>Abgesagte Termine</h2>';
   bindCards();
@@ -182,7 +195,7 @@ function renderWeek() {
   root.querySelectorAll('[data-week-event]').forEach(b=>b.onclick=()=>{const e=events.find(e=>e.id===b.dataset.weekEvent);if(e)openEventSummary(e);});
 }
 function renderTasks() {
-  const today=localDate(), end=localDate(addDays(new Date(),120));
+  const today=localDate(), end=localDate(addDays(new Date(),30));
   const list=filterEvents(selectedEvents({tasks:true}).filter(e=>eventEndDate(e)>=today&&e.event_date<=end&&(calendarFilter==='cancelled'||isTask(e)||calendarFilter==='open')),calendarFilter,myPersonId());
   $('#tasksList').innerHTML=list.length?groupedCards(list.slice(0,taskLimit),{mine:calendarFilter==='mine',task:true}):'<div class="empty">Keine passenden Aufgaben.</div>';
   $('#moreTasks').classList.toggle('hidden',list.length<=taskLimit); bindCards();
@@ -243,11 +256,11 @@ function openEvent(event=null) {
   const recurrence=series.find(s=>s.id===event?.series_id);
   $('#recurrence').value=recurrence?.recurrence||'none';
   $('#recurrenceEnd').value=recurrence?.ends_on||'';
-  $$('#weekdayChoices input').forEach(input=>{input.checked=recurrence?.selected_weekdays?.includes(Number(input.value))||false;input.disabled=!!event;});
+  $$('#weekdayChoices input').forEach(input=>{input.checked=recurrence?.selected_weekdays?.includes(Number(input.value))||false;input.disabled=!!event?.series_id;});
   $('#weekdayChoices').classList.toggle('hidden',$('#recurrence').value!=='custom');
-  $('#recurrence').disabled=Boolean(event); $('#recurrenceEnd').disabled=Boolean(event);
+  $('#recurrence').disabled=Boolean(event?.series_id)||event?.event_type==='vacation'; $('#recurrenceEnd').disabled=Boolean(event?.series_id)||event?.event_type==='vacation';
   $('#seriesInfo').textContent=event?.series_id?'Rhythmus und Serienende sind hier schreibgeschützt. Einzelne Termine, Datum, Zeiten und Zuständigkeiten können geändert werden.':
-    event?'Ein bestehender Einzeltermin bleibt ein Einzeltermin. Für eine neue Serie bitte einen neuen Termin anlegen.':'Ohne Enddatum wird die Serie für ein Jahr angelegt (maximal zwei Jahre).';
+    event?'Mit einer Wiederholung wird dieser Einzeltermin zur Serie. Der bestehende Termin bleibt erhalten.':'Ohne Enddatum wird die Serie für ein Jahr angelegt (maximal zwei Jahre).';
   $('#saveEvent').disabled=!allowed||!!event?.is_cancelled;$('#saveEvent').textContent='Speichern';
   if(event?.event_type==='vacation')$('#seriesInfo').textContent='Vorhandene Urlaubsabsagen bleiben bei einer Änderung des Zeitraums erhalten. Über die Terminkarte kannst du sie ausdrücklich rückgängig machen.';
   if(!allowed) $('#seriesInfo').textContent='Du kannst diesen Termin ansehen, aber nicht bearbeiten.';
@@ -273,8 +286,10 @@ function validateEvent(data) {
   if($('#recurrence').value==='custom'&&!$$('#weekdayChoices input:checked').length)throw new Error('Bitte mindestens einen Wochentag wählen.');
   if(data.reminders.some(n=>!Number.isInteger(n)||n<0||n>10080)) throw new Error('Erinnerungen: ganze Minuten von 0 bis 10080');
 }
-function askScope(action) {
+function askScope(action,{weekdays=false}={}) {
   pendingScope=action;
+  $('#weekdayScope').classList.toggle('hidden',!weekdays);
+  $$('#scopeWeekdays input').forEach(x=>x.checked=Number(x.value)===dateAtNoon($('#eventDate').value).getDay()||Number(x.value)===7&&dateAtNoon($('#eventDate').value).getDay()===0);
   $$('#scopeDialog [data-scope]').forEach(b=>b.disabled=!admin()&&['series','following'].includes(b.dataset.scope));
   $('#scopeDialog').showModal();
 }
@@ -290,8 +305,8 @@ async function saveEvent(event) {
     const data=payload(),id=$('#eventId').value,seriesId=$('#seriesId').value;
     validateEvent(data);
     if(data.event_type==='vacation'&&!id)return vacationPreview(data);
-    const save=async scope=>{const saved=check(await sb.rpc('save_calendar_event_v170',{p_event:data,p_id:id||null,p_scope:scope,p_recurrence:id?'none':$('#recurrence').value,p_until:$('#recurrenceEnd').value||null,p_weekdays:$$('#weekdayChoices input:checked').map(x=>Number(x.value))}));if(!saved)throw new Error('Nicht gespeichert: Keine Bestätigung vom Server.');await done();};
-    if(id&&seriesId)return askScope(save);
+    const save=async scope=>{const weekdayScope=scope==='weekdays',convert=id&&!seriesId&&$('#recurrence').value!=='none';const chosen=$$('#scopeWeekdays input:checked').map(x=>Number(x.value));if(weekdayScope&&!chosen.length)throw new Error('Bitte mindestens einen Wochentag wählen.');const args={p_event:data,p_id:id||null,p_scope:scope,p_recurrence:seriesId?'none':$('#recurrence').value,p_until:$('#recurrenceEnd').value||null,p_weekdays:$$('#weekdayChoices input:checked').map(x=>Number(x.value))};if(weekdayScope)args.p_days=chosen;const saved=check(await sb.rpc(weekdayScope||convert?'save_calendar_event_v190':'save_calendar_event_v170',args));if(!saved)throw new Error('Nicht gespeichert: Keine Bestätigung vom Server.');await done();};
+    if(id&&seriesId)return askScope(save,{weekdays:member.role==='owner'});
     return save('single');
   });
 }
@@ -473,7 +488,7 @@ function bindUI() {
   $('#availabilityInfo').onclick=()=>{ $('#settingsHeading').textContent='Verfügbarkeit';$('#settingsContent').innerHTML='<p>Ohne eingetragenen Termin ist eine Person nicht automatisch bestätigt verfügbar. Die Kalender zeigen nur die erfassten Termine.</p><p>Termine mit „Belegt diese Zeit“ markieren eine Belegung; Hinweise belegen keine Zeit. Abgesagte Termine zählen nicht als Belegung.</p>';$('#settingsDialog').showModal(); };
   $('#add').onclick=()=>openEvent(); $('#avatar').onclick=()=>openSettings('profile');
   $('#refresh').onclick=()=>busy($('#refresh'),refreshAll);
-  const changeWeek=async delta=>{weekOffset+=delta; $('#weekList').innerHTML='<div class="empty">Termine werden geladen …</div>'; try{await refreshAll();}catch(error){$('#weekList').innerHTML='<div class="empty">Termine konnten nicht geladen werden. Bitte aktualisieren.</div>';toast(errorText(error));}};
+  const changeWeek=async delta=>{if($('#prevWeek').disabled)return;const previous=weekOffset;weekOffset+=delta;$('#weekRange').textContent='Wird geladen …';['prevWeek','nextWeek','weekToday'].forEach(id=>$('#'+id).disabled=true);try{await refreshAll({force:false});}catch(error){weekOffset=previous;if(member)renderWeek();toast(errorText(error));}finally{['prevWeek','nextWeek','weekToday'].forEach(id=>$('#'+id).disabled=false);}};
   $('#prevWeek').onclick=()=>changeWeek(-1); $('#nextWeek').onclick=()=>changeWeek(1);
   $('#weekToday').onclick=()=>changeWeek(-weekOffset);
   $('#weekCalendar').onchange=()=>{weekCalendarId=$('#weekCalendar').value;localStorage.setItem('famkal-week-calendar-'+user.id,weekCalendarId);renderWeek();};
@@ -497,7 +512,7 @@ function bindUI() {
   $('#assigneeAll').onchange=()=>{if($('#assigneeAll').checked)$$('#assigneePeople input').forEach(x=>x.checked=false);};
   $('#assigneePeople').addEventListener('change',e=>{if(e.target.matches('input[type=checkbox]')&&e.target.checked)$('#assigneeAll').checked=false;});
   $('#recurrence').onchange=()=>$('#weekdayChoices').classList.toggle('hidden',$('#recurrence').value!=='custom');
-  $('#eventType').onchange=()=>{const type=$('#eventType').value,id=$('#eventId').value;if(!id){if(type==='bedtime'){$('#eventEndDate').value=localDate(addDays(dateAtNoon($('#eventDate').value),1));if(!$('#startTime').value)$('#startTime').value='20:00';if(!$('#endTime').value)$('#endTime').value='06:00';}if(type==='vacation'){$('#allDay').value='true';$('#recurrence').value='none';$('#weekdayChoices').classList.add('hidden');toggleAllDay();}}$('#recurrence').disabled=!!id||type==='vacation';$('#recurrenceEnd').disabled=!!id||type==='vacation';$('#saveEvent').textContent=type==='vacation'&&!id?'Nächster Schritt':'Speichern';};
+  $('#eventType').onchange=()=>{const type=$('#eventType').value,id=$('#eventId').value;if(!id){if(type==='bedtime'){$('#eventEndDate').value=localDate(addDays(dateAtNoon($('#eventDate').value),1));if(!$('#startTime').value)$('#startTime').value='20:00';if(!$('#endTime').value)$('#endTime').value='06:00';}if(type==='vacation'){$('#allDay').value='true';$('#recurrence').value='none';$('#weekdayChoices').classList.add('hidden');toggleAllDay();}}$('#recurrence').disabled=!!$('#seriesId').value||type==='vacation';$('#recurrenceEnd').disabled=!!$('#seriesId').value||type==='vacation';$('#saveEvent').textContent=type==='vacation'&&!id?'Nächster Schritt':'Speichern';};
   $('#eventDate').onchange=()=>{if($('#eventEndDate').value<$('#eventDate').value)$('#eventEndDate').value=$('#eventDate').value;};
   $('#calendarPicker').onclick=()=>{$('#calendarPickerDialog').showModal();updateCalendarPicker();};
   $('#showAllCalendars').onclick=()=>setCalendarSelection(calendars.filter(c=>c.is_active).map(c=>c.id));
@@ -542,7 +557,7 @@ async function start() {
         if(!session) { if(!accessLink)clearSession(); return; }
         const changed=user?.id!==session.user.id; user=session.user;
         if(accessLink)return;
-        if(initialized&&(changed||event==='SIGNED_IN')) loadMembership().catch(e=>toast(errorText(e)));
+        if(initialized&&(changed||(event==='SIGNED_IN'&&!member))) loadMembership().catch(e=>toast(errorText(e)));
       },0);
     });
     const data=check(await sb.auth.getSession());
@@ -583,7 +598,8 @@ function fillEventCalendars(event) {
 async function changeFamilyDay(day) {
  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return;
  familyDay=day;const today=dateAtNoon(localDate());const distance=Math.round((dateAtNoon(day)-today)/86400000);
- weekOffset=Math.floor((distance+((today.getDay()+6)%7))/7);await busy(null,refreshAll);
+ const previousDay=$('#familyDay').dataset.loaded||localDate(),previousOffset=weekOffset;
+ weekOffset=Math.floor((distance+((today.getDay()+6)%7))/7);try{await refreshAll({force:false});$('#familyDay').dataset.loaded=day;}catch(error){familyDay=previousDay;weekOffset=previousOffset;if(member)renderFamily();toast(errorText(error));}
 }
 function renderFamily() {
  const root=$('#familyBoard');if(!root)return;$('#familyDay').value=familyDay;

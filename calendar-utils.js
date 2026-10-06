@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.8.0';
+export const APP_VERSION = '1.9.0';
 export function localDate(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
@@ -12,7 +12,7 @@ export function weekBounds(offset = 0, now = new Date()) {
 export function queryBounds(offset = 0, now = new Date()) {
   const [start,end] = weekBounds(offset,now);
   const today = localDate(now);
-  return [localDate(start)<today ? localDate(start) : today, localDate(end)>localDate(addDays(now,120)) ? localDate(end) : localDate(addDays(now,120))];
+  return [localDate(start)<today ? localDate(start) : today, localDate(end)>localDate(addDays(now,30)) ? localDate(end) : localDate(addDays(now,30))];
 }
 export function escapeHtml(value) { return String(value??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 export function safeColor(value) { return /^#[0-9a-f]{6}$/i.test(value??'') ? value : '#888888'; }

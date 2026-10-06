@@ -1,4 +1,12 @@
-# Leonhards Familienkalender — Famkal 1.8.0
+# Leonhards Familienkalender — Famkal 1.9.0
+
+## Gezieltes Nachladen und Serienänderungen (1.9.0)
+
+Heute und Aufgaben sind auf heute bis 30 Tage voraus begrenzt. Fehlende Kalendertage/-wochen werden zusätzlich geladen; vorher geladene Zeiträume werden kontolokal im Arbeitsspeicher wiederverwendet. Verwaltungsdaten werden beim Blättern nicht erneut geladen. Manuelles Aktualisieren und jede eigene Änderung invalidieren den Cache; nach fünf Minuten wird er ebenfalls erneuert. Keine Offline-Speicherung. Bei schwacher Verbindung begrenzte Wartezeit, vorhandene Ansicht bleibt erhalten; Sitzungsfehler werden einmal mit erneuerter Anmeldung versucht, fehlende Sitzungen führen zum Login. Keine Erweiterung der anonymen Leserechte.
+
+Owner können beim Speichern einer Serie Wochentage auswählen und ab dem geöffneten Termin ändern. Abgesagte Termine und andere individuelle Ausnahmen bleiben erhalten. Datum/Zeit und Zuständigkeit folgen der vorhandenen Bearbeitungslogik. Wiederholte Wochentagsänderungen bleiben möglich. Die Wiederholungsregel bestehender Serien bleibt schreibgeschützt.
+
+Ein bearbeitbarer Einzeltermin kann durch Wahl einer Wiederholung in eine Serie umgewandelt werden. Die bestehende ID und der Ersteller bleiben erhalten; zusätzliche Termine bekommen eigene IDs. Der Ausgangstermin muss bei Mo–Fr oder freier Wochentagswahl auf einen passenden Tag fallen. Datum, Zeiten, Kalender, Zuständigkeit und Erinnerungen werden übernommen. Urlaub bleibt ein Einzeltermin. Maximal zwei Jahre Serienlaufzeit; ungültige Eingaben und veraltete Bearbeitungsstände rollen vollständig zurück.
 
 ## Wochenkalender und Schwimmen (1.8.0)
 
