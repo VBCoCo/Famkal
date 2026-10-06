@@ -276,7 +276,7 @@ function payload() {
     start_time:allDay?null:$('#startTime').value||null,end_time:allDay?null:$('#endTime').value||null,all_day:allDay,
     location:$('#location').value.trim(),notes:$('#notes').value.trim(),
     reminders:$$('#reminders input[type=number]').map(x=>Number(x.value)),
-    reminder_messages:Object.fromEntries($$('#reminders .reminder').map(row=>[row.querySelector('input[type=number]').value,row.querySelector('input[type=text]').value.trim()]).filter(([,text])=>text))};
+    reminder_messages:Object.fromEntries($$('#reminders .reminder').map(row=>[String(Number(row.querySelector('input[type=number]').value)),row.querySelector('input[type=text]').value.trim()]).filter(([,text])=>text))};
 }
 function validateEvent(data) {
   if(!data.title) throw new Error('Bitte einen Titel eingeben');

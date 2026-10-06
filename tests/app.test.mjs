@@ -30,6 +30,7 @@ test('reminder texts round trip, reject duplicate offsets, and remove with the r
   const d=f.w.document;
   f.w.testApp.openEvent({id:'e1',event_date:'2026-10-06',end_date:'2026-10-06',start_time:'15:20',end_time:'16:20',title:'Schwimmen',reminders:[15,5],reminder_messages:{15:'In 15 Minuten losfahren',5:'In fünf Minuten losfahren'},calendar_links:[{calendar_id:'leo'}]});
   assert.equal(d.querySelectorAll('#reminders input[type=text]')[1].value,'In fünf Minuten losfahren');
+  d.querySelector('#reminders input[type=number]').value='015';
   assert.equal(f.w.testApp.payload().reminder_messages['15'],'In 15 Minuten losfahren');
   d.querySelectorAll('#reminders input[type=number]')[1].value='15';
   assert.throws(()=>f.w.testApp.validateEvent(f.w.testApp.payload()),/nur einmal/);
