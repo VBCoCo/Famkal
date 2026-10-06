@@ -14,7 +14,8 @@ export function validSubscription(value) {
 function equalSecret(a,b){if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0;}
 export function reminderPayload(job) {
  const time=new Date(job.start_at).toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'});
- return {title:'Famkal · Erinnerung',body:String(job.title).slice(0,160)+' · '+time+(job.roles?' · '+String(job.roles).slice(0,80):''),tag:'famkal-'+job.tag,url:APP+'?event='+encodeURIComponent(job.event_id)};
+ const message=typeof job.reminder_message==='string'?job.reminder_message.trim().slice(0,240):'';
+ return {title:'Erinnerung',body:String(job.title).slice(0,160)+' · '+time+' Uhr'+(message?'\n'+message:''),tag:'famkal-'+job.tag,url:APP+'?event='+encodeURIComponent(job.event_id)};
 }
 export function makeHandler(createClient,env,send) {
  return async request=>{

@@ -4,6 +4,12 @@ import webpush from 'web-push';
 import {createECDH,randomBytes} from 'node:crypto';
 import {makeHandler,validSubscription,reminderPayload} from '../supabase/functions/send-reminders/handler.mjs';
 const id='11111111-1111-4111-8111-111111111111';
+test('optional reminder text is sent below the appointment without responsibility labels',()=>{
+ const job={title:'Schwimmen',start_at:'2026-10-06T13:20:00Z',event_id:id,tag:id,roles:'Zuständig · Eigener Termin'};
+ assert.equal(reminderPayload(job).body,'Schwimmen · 15:20 Uhr');
+ assert.equal(reminderPayload({...job,reminder_message:' In fünf Minuten losfahren '}).body,'Schwimmen · 15:20 Uhr\nIn fünf Minuten losfahren');
+ assert.equal(reminderPayload({...job,reminder_message:'x'.repeat(300)}).body.split('\n')[1].length,240);
+});
 const curve=createECDH('prime256v1');curve.generateKeys();
 const subscription={endpoint:'https://web.push.apple.com/test',keys:{p256dh:curve.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}};
 const vapid=webpush.generateVAPIDKeys();
@@ -41,7 +47,7 @@ test('explicit test targets only server-authorized own subscription and is uncac
 });
 test('drain revalidates every claim and records successful delivery with stable tag',async()=>{
  const f=fixture();const r=await f.request({action:'drain'},{'x-famkal-cron':'private-cron-secret'});assert.equal(r.status,200);assert.equal((await r.json()).sent,1);
- const sent=f.sent[0];assert.match(sent.payload.body,/Bringen · Zuständig/);assert.equal(sent.payload.url,'https://vbcoco.github.io/Famkal/?event='+id);assert.equal(sent.payload.tag,'famkal-'+id);
+ const sent=f.sent[0];assert.equal(sent.payload.title,'Erinnerung');assert.doesNotMatch(sent.payload.body,/Bringen|Zuständig/);assert.equal(sent.payload.url,'https://vbcoco.github.io/Famkal/?event='+id);assert.equal(sent.payload.tag,'famkal-'+id);
  assert.ok(f.calls.some(x=>x.name==='prepare_push'));assert.equal(f.calls.find(x=>x.name==='finish_push').args.p_status,201);
  const cancelled=fixture({job:false});await cancelled.request({action:'drain'},{'x-famkal-cron':'private-cron-secret'});assert.equal(cancelled.sent.length,0);
 });

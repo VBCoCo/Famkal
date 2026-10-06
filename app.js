@@ -206,10 +206,11 @@ function groupedCards(list,options) {
 function fillPeople() {
   if(!$('#eventDialog').open){$('#assigneePeople').innerHTML=allPeople().map(m=>'<label class="checkbox-label"><input type="checkbox" value="'+esc(m.user_id)+'">'+esc(m.display_name)+(m.is_test?' (Test)':'')+'</label>').join('');}
 }
-function addReminder(value=15) {
-  if($$('#reminders input').length>=10) return toast('Maximal zehn Erinnerungen pro Termin');
+function addReminder(value=15,message='') {
+  if($$('#reminders .reminder').length>=10) return toast('Maximal zehn Erinnerungen pro Termin');
   const node=$('#reminderTpl').content.cloneNode(true);
-  node.querySelector('input').value=value;
+  node.querySelector('input[type=number]').value=value;
+  node.querySelector('input[type=text]').value=message;
   node.querySelector('button').onclick=e=>e.target.closest('.reminder').remove();
   $('#reminders').append(node);
 }
@@ -228,7 +229,7 @@ function openEventSummary(event) {
     ['Zeit',event.all_day?'Ganztägig':(event.start_time?.slice(0,5)||'')+' – '+(event.end_time?.slice(0,5)||'')],
     ['Ort',event.location],['Zuständig',event.assignee_all?'Alle in der Verantwortungsgruppe':people('assignee')],
     ['Status',event.is_cancelled?'Abgesagt':event.blocks_time===false?'Hinweis · belegt keine Zeit':''],
-    ['Erinnerung',(event.reminders||[]).map(m=>m+' Min. vorher').join(', ')],['Serie',event.series_id?'Wiederkehrender Termin':'']];
+    ['Erinnerung',(event.reminders||[]).map(m=>m+' Min. vorher'+(event.reminder_messages?.[m]?' – '+event.reminder_messages[m]:'')).join('; ')],['Serie',event.series_id?'Wiederkehrender Termin':'']];
   $('#eventSummaryContent').innerHTML='<dl class="event-facts">'+rows.filter(([,v])=>v).map(([k,v])=>'<div><dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd></div>').join('')+'</dl>'+(event.notes?event.notes.length>180?'<details class="summary-notes"><summary>Notiz anzeigen</summary><p>'+esc(event.notes)+'</p></details>':'<p class="summary-notes">'+esc(event.notes)+'</p>':'');
   const button=$('#summaryEdit');button.classList.toggle('hidden',!canEdit(event)||Boolean(event.is_cancelled));
   button.onclick=()=>{const current=events.find(e=>e.id===event.id);$('#eventSummaryDialog').close();if(current)openEvent(current);};
@@ -252,7 +253,7 @@ function openEvent(event=null) {
   fillEventCalendars(event);
   $('#assigneeAll').checked=!!event?.assignee_all;
   $$('#assigneePeople input').forEach(input=>{input.checked=!event?.assignee_all&&assignmentIds(event||{},'assignee').includes(input.value);input.disabled=false;});
-  (event?.reminders??[member.default_reminder_minutes??15]).forEach(addReminder);
+  (event?.reminders??[member.default_reminder_minutes??15]).forEach(minutes=>addReminder(minutes,event?.reminder_messages?.[minutes]||''));
   const recurrence=series.find(s=>s.id===event?.series_id);
   $('#recurrence').value=recurrence?.recurrence||'none';
   $('#recurrenceEnd').value=recurrence?.ends_on||'';
@@ -274,7 +275,8 @@ function payload() {
     assignments:$$('#assigneePeople input:checked').map(x=>({role:'assignee',person_id:x.value})),
     start_time:allDay?null:$('#startTime').value||null,end_time:allDay?null:$('#endTime').value||null,all_day:allDay,
     location:$('#location').value.trim(),notes:$('#notes').value.trim(),
-    reminders:[...new Set($$('#reminders input').map(x=>Number(x.value)))]};
+    reminders:$$('#reminders input[type=number]').map(x=>Number(x.value)),
+    reminder_messages:Object.fromEntries($$('#reminders .reminder').map(row=>[row.querySelector('input[type=number]').value,row.querySelector('input[type=text]').value.trim()]).filter(([,text])=>text))};
 }
 function validateEvent(data) {
   if(!data.title) throw new Error('Bitte einen Titel eingeben');
@@ -285,6 +287,8 @@ function validateEvent(data) {
   if(data.end_time&&(!data.start_time||(data.end_date===data.event_date&&data.end_time<data.start_time))) throw new Error('Ende liegt vor Anfang. Für einen Termin über Nacht das Enddatum auf den nächsten Tag setzen.');
   if($('#recurrence').value==='custom'&&!$$('#weekdayChoices input:checked').length)throw new Error('Bitte mindestens einen Wochentag wählen.');
   if(data.reminders.some(n=>!Number.isInteger(n)||n<0||n>10080)) throw new Error('Erinnerungen: ganze Minuten von 0 bis 10080');
+  if(new Set(data.reminders).size!==data.reminders.length)throw new Error('Bitte jede Vorlaufzeit nur einmal verwenden.');
+  if(Object.values(data.reminder_messages||{}).some(text=>text.length>240))throw new Error('Erinnerungstext: maximal 240 Zeichen.');
 }
 function askScope(action,{weekdays=false}={}) {
   pendingScope=action;

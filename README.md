@@ -1,4 +1,8 @@
-# Leonhards Familienkalender — Famkal 1.9.0
+# Leonhards Familienkalender — Famkal 1.9.1
+
+## Klarere Push-Erinnerungen und optionale Texte (1.9.1)
+
+Benachrichtigungen zeigen „Erinnerung“, Termin und Uhrzeit ohne zusätzliche Zuständigkeitslabels. Jede Vorlaufzeit kann einen optionalen Text mit bis zu 240 Zeichen erhalten, der allen Empfängern dieser Erinnerung angezeigt wird. Texte bleiben bei Einzel-, Serien- und Wochentagsänderungen sowie beim Umwandeln in eine Serie erhalten. Entfernte Erinnerungen entfernen ihren Text; bestehende Termine und Vorlaufzeiten bleiben unverändert. Die zusätzliche Herkunftszeile „from …“ wird weiterhin durch iOS bestimmt.
 
 ## Gezieltes Nachladen und Serienänderungen (1.9.0)
 

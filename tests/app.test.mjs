@@ -19,12 +19,28 @@ function fixture({rows=[],rpcResult=null,rpcError=null,profilePersistence=false,
     return q;
   },rpc:async(name,args)=>{calls.push({action:'rpc',name,args});return {data:rpcResult,error:rpcError};}};
   const member={user_id:'u1',family_id:'f1',display_name:'Robert',color:'#355c50',role:'owner',default_reminder_minutes:0};
-  const calendarFixture=[{id:'leo',person_id:'leo-person',display_name:'Leo',is_active:true,allow_family_create:true},{id:'robert',person_id:'u1',display_name:'Robert',is_active:true}];
+const calendarFixture=[{id:'leo',person_id:'leo-person',display_name:'Leo',is_active:true,allow_family_create:true},{id:'robert',person_id:'u1',display_name:'Robert',is_active:true}];
   Object.assign(w,{...utils,...links,EventCache,sessionRead,mountPushSettings,disablePushDevice,esc:utils.escapeHtml,mountProjectList,createClient:()=>sb});
   w.eval(app.replace(/start\(\);\s*$/,'sb=createClient(); bindUI();')+'\nwindow.testApp={renderAccessLanding,editMember,editTestMember,openEventSummary,renderFamily,setCalendarSelection,editCalendar,validateEvent,setCalendars(value,people){calendars=value;profiles=people;selectedCalendars=value.map(c=>c.id);},start,openSettings,openNotificationEvent,openEvent,payload,card,askScope,navigate,renderToday,renderWeek,renderTasks,clearSession,vacationPreview,setTestPeople(value){testMembers=value;},setEvents(value){events=value;renderToday();renderWeek();renderTasks();},setPeople(value){members=value;},setAccessLink(value){accessLink=value;renderAccessLanding();},setState(){user={id:"u1"};member='+JSON.stringify(member)+';members=[member];events=[];series=[];calendars=[{id:"leo",person_id:"leo-person",display_name:"Leo",is_active:true,allow_family_create:true},{id:"robert",person_id:"u1",display_name:"Robert",is_active:true}];selectedCalendars=["leo","robert"];},setRole(role){member.role=role;},setSeries(value){series=value;},refreshAll};');
   w.testApp.setState();
   return {dom,w,calls,close:()=>dom.window.close()};
 }
+test('reminder texts round trip, reject duplicate offsets, and remove with the reminder',()=>{
+ const f=fixture();try{
+  const d=f.w.document;
+  f.w.testApp.openEvent({id:'e1',event_date:'2026-10-06',end_date:'2026-10-06',start_time:'15:20',end_time:'16:20',title:'Schwimmen',reminders:[15,5],reminder_messages:{15:'In 15 Minuten losfahren',5:'In fünf Minuten losfahren'},calendar_links:[{calendar_id:'leo'}]});
+  assert.equal(d.querySelectorAll('#reminders input[type=text]')[1].value,'In fünf Minuten losfahren');
+  assert.equal(f.w.testApp.payload().reminder_messages['15'],'In 15 Minuten losfahren');
+  d.querySelectorAll('#reminders input[type=number]')[1].value='15';
+  assert.throws(()=>f.w.testApp.validateEvent(f.w.testApp.payload()),/nur einmal/);
+  d.querySelectorAll('#reminders input[type=number]')[1].value='5';
+  d.querySelector('#reminders button').click();
+  assert.deepEqual(JSON.parse(JSON.stringify(f.w.testApp.payload().reminder_messages)),{'5':'In fünf Minuten losfahren'});
+  f.w.testApp.openEventSummary({id:'e1',title:'Test',event_date:'2026-10-06',reminders:[5],reminder_messages:{5:'<script>Text</script>'}});
+  assert.match(d.querySelector('#eventSummaryContent').textContent,/<script>Text<\/script>/);
+  assert.equal(d.querySelector('#eventSummaryContent script'),null);
+ }finally{f.close();}
+});
 test('event editor preserves zero-minute default and all-day clears payload times',()=>{
   const f=fixture();try {
     f.w.testApp.openEvent();
@@ -327,7 +343,7 @@ test('shared compact header contains calendar selection and version is confined 
  const f=fixture();try{
   const d=f.w.document;assert.ok(d.querySelector('header #calendarPicker'));assert.equal(d.querySelector('.calendar-picker-bar'),null);assert.doesNotMatch(d.querySelector('.app-top').textContent,/1\.7\./);assert.doesNotMatch(d.querySelector('#auth').textContent,/1\.7\./);
   for(const view of ['today','family','week','tasks']){f.w.testApp.navigate(view);assert.equal(d.querySelector('#calendarFilters').classList.contains('hidden'),false);}
-  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.9\.0/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.9\.0/);
+  f.w.testApp.openSettings('profile');assert.match(d.querySelector('#settingsContent .app-version').textContent,/1\.9\.1/);assert.match(d.querySelector('#moreView .app-version').textContent,/1\.9\.1/);
   d.querySelector('#settingsDialog').close();d.querySelector('#availabilityInfo').click();assert.match(d.querySelector('#settingsContent').textContent,/nicht automatisch bestätigt verfügbar/);
  }finally{f.close();}
 });
